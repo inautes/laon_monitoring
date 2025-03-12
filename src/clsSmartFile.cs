@@ -411,7 +411,7 @@ namespace OSPAutoSearch_AutoLogin
                     string detailUrl = $"https://smartfile.co.kr/contents/view.php?gg=1&idx={strSeqNo}";
                     
                     // Navigate to the detail page
-                    await web.CoreWebView2.NavigateToAsync(detailUrl);
+                    await web.CoreWebView2.Navigate(detailUrl);
                     
                     // Wait for page to load completely
                     clsUtil.Delay(1000);
