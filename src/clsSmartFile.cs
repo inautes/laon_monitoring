@@ -81,6 +81,15 @@ namespace OSPAutoSearch_AutoLogin
 
         }
 
+        public async Task<string> GetDoc(Microsoft.Web.WebView2.WinForms.WebView2 web)
+        {
+            string html = await web.CoreWebView2.ExecuteScriptAsync("document.documentElement.outerHTML");
+            html = Regex.Unescape(html);
+            html = html.Remove(0, 1);
+            html = html.Remove(html.Length - 1, 1);
+            return html;
+        }
+
         public HtmlDocument GetPopupDoc(Microsoft.Web.WebView2.WinForms.WebView2 web)
         {
             return null;
@@ -108,7 +117,7 @@ namespace OSPAutoSearch_AutoLogin
             }
         }
 
-        public void scriptRun(Microsoft.Web.WebView2.WinForms.WebView2 web, string strSeqNo)
+        public async void scriptRun(Microsoft.Web.WebView2.WinForms.WebView2 web, string strSeqNo)
         {
             try
             {
@@ -119,13 +128,13 @@ namespace OSPAutoSearch_AutoLogin
                     string detailUrl = $"https://smartfile.co.kr/contents/view.php?gg=1&idx={strSeqNo}";
                     
                     // Navigate to the detail page
-                    web.CoreWebView2.Navigate(detailUrl);
+                    await web.CoreWebView2.NavigateToAsync(detailUrl);
                     
                     // Wait for page to load completely
                     clsUtil.Delay(1000);
                     
                     // Execute JavaScript to ensure the page is fully rendered
-                    web.CoreWebView2.ExecuteScriptAsync("window.scrollTo(0, 100);");
+                    await web.CoreWebView2.ExecuteScriptAsync("window.scrollTo(0, 100);");
                 }
             }
             catch (Exception ex) 
