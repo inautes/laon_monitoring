@@ -19,8 +19,8 @@ const config = {
     type: 'SITE0010',
     equ: 15, // 1+2+4+8 (ID, Uploader, Title, Size)
     loginUrl: 'https://fileis.com/',
-    username: process.env.FILEIS_USERNAME || 'ehlwlqk14s',
-    password: process.env.FILEIS_PASSWORD || 'edcrfv#$as'
+    username: process.env.FILEIS_USERNAME,
+    password: process.env.FILEIS_PASSWORD
   },
   browser: {
     headless: process.env.HEADLESS !== 'false',
