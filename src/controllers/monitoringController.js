@@ -298,7 +298,11 @@ class MonitoringController {
       let results = [];
       
       if (this.monitoringApp && this.monitoringApp.databaseService) {
-        results = this.status.results;
+        if (this.monitoringApp.databaseService.db) {
+          results = this.monitoringApp.databaseService.getAllContent() || [];
+        } else {
+          results = this.status.results;
+        }
       } else {
         results = this.status.results;
       }
