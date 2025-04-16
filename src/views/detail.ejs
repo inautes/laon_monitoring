@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %></title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    header {
+      background-color: #2c3e50;
+      color: white;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 {
+      margin: 0;
+    }
+    .card {
+      background-color: white;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .detail-item {
+      margin-bottom: 15px;
+    }
+    .detail-label {
+      font-weight: bold;
+      color: #7f8c8d;
+      margin-bottom: 5px;
+    }
+    .detail-value {
+      font-size: 16px;
+    }
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    .file-table th, .file-table td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    .file-table th {
+      background-color: #f2f2f2;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 3px;
+      font-weight: bold;
+    }
+    .status-normal {
+      background-color: #e8f5e9;
+      color: #388e3c;
+    }
+    .status-keyword {
+      background-color: #ffebee;
+      color: #d32f2f;
+    }
+    .nav {
+      display: flex;
+      background-color: #34495e;
+      margin-bottom: 20px;
+    }
+    .nav a {
+      color: white;
+      text-decoration: none;
+      padding: 15px 20px;
+      transition: background-color 0.3s ease;
+    }
+    .nav a:hover {
+      background-color: #2c3e50;
+    }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 20px;
+      color: #3498db;
+      text-decoration: none;
+    }
+    .back-link:hover {
+      text-decoration: underline;
+    }
+    .evidence-image {
+      width: 100%;
+      max-width: 800px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin-top: 20px;
+    }
+    .keyword-highlight {
+      background-color: #ffe6e6;
+      color: #e74c3c;
+      padding: 2px 5px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>컨텐츠 상세 정보</h1>
+      <p>
+        <% if (content.status === 'KEYWORD_FOUND') { %>
+          <span class="status-badge status-keyword">키워드 발견</span>
+        <% } else { %>
+          <span class="status-badge status-normal">일반</span>
+        <% } %>
+      </p>
+    </div>
+  </header>
+  
+  <div class="container">
+    <div class="nav">
+      <a href="/">홈</a>
+      <a href="/status">모니터링 상태</a>
+      <a href="/search">키워드 검색</a>
+    </div>
+    
+    <a href="/category/<%= content.category %>" class="back-link">← 카테고리로 돌아가기</a>
+    
+    <div class="card">
+      <h2>
+        <% if (content.title.includes('폭싹속았수다')) { %>
+          <%= content.title.replace('폭싹속았수다', '<span class="keyword-highlight">폭싹속았수다</span>') %>
+        <% } else { %>
+          <%= content.title %>
+        <% } %>
+      </h2>
+      
+      <div class="detail-grid">
+        <div>
+          <div class="detail-item">
+            <div class="detail-label">컨텐츠 ID</div>
+            <div class="detail-value"><%= content.id %></div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">카테고리</div>
+            <div class="detail-value">
+              <% if (content.category === 'CG001') { %>영화<% } %>
+              <% if (content.category === 'CG002') { %>드라마<% } %>
+              <% if (content.category === 'CG003') { %>동영상 및 방송<% } %>
+              <% if (content.category === 'CG005') { %>애니<% } %>
+              (<%= content.category %>)
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">업로더</div>
+            <div class="detail-value"><%= content.uploaderId %></div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">업로드 날짜</div>
+            <div class="detail-value"><%= content.uploadDate %></div>
+          </div>
+        </div>
+        
+        <div>
+          <div class="detail-item">
+            <div class="detail-label">파일 크기</div>
+            <div class="detail-value"><%= content.fileSize %></div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">가격</div>
+            <div class="detail-value"><%= content.price %> <%= content.priceUnit %></div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">제휴 상태</div>
+            <div class="detail-value">
+              <% if (content.partnershipStatus === 'Y') { %>제휴<% } %>
+              <% if (content.partnershipStatus === 'N') { %>미제휴<% } %>
+              <% if (content.partnershipStatus === 'U') { %>확인불가<% } %>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">크롤 ID</div>
+            <div class="detail-value"><%= content.crawlId %></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="detail-item">
+        <div class="detail-label">파일 목록</div>
+        <table class="file-table">
+          <thead>
+            <tr>
+              <th>파일명</th>
+              <th>크기</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% content.fileList.forEach(file => { %>
+              <tr>
+                <td><%= file.name %></td>
+                <td><%= file.size %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="detail-item">
+        <div class="detail-label">증거 이미지</div>
+        <div class="detail-value">
+          <img src="https://via.placeholder.com/800x600?text=Evidence+Image" alt="증거 이미지" class="evidence-image">
+          <p>캡처 파일: <%= content.captureFilename %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

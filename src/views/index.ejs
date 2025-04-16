@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %></title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    header {
+      background-color: #2c3e50;
+      color: white;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 {
+      margin: 0;
+    }
+    .card {
+      background-color: white;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 20px;
+    }
+    .category-card {
+      background-color: white;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      transition: transform 0.3s ease;
+    }
+    .category-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .category-card h3 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    .category-card p {
+      color: #7f8c8d;
+      margin: 5px 0;
+    }
+    .category-card .count {
+      font-size: 24px;
+      font-weight: bold;
+      color: #3498db;
+      margin: 10px 0;
+    }
+    .search-form {
+      display: flex;
+      margin-bottom: 20px;
+    }
+    .search-form input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px 0 0 5px;
+      font-size: 16px;
+    }
+    .search-form button {
+      padding: 10px 20px;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 0 5px 5px 0;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .search-form button:hover {
+      background-color: #2980b9;
+    }
+    .nav {
+      display: flex;
+      background-color: #34495e;
+      margin-bottom: 20px;
+    }
+    .nav a {
+      color: white;
+      text-decoration: none;
+      padding: 15px 20px;
+      transition: background-color 0.3s ease;
+    }
+    .nav a:hover {
+      background-color: #2c3e50;
+    }
+    .nav a.active {
+      background-color: #3498db;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><%= title %></h1>
+      <p>웹하드 컨텐츠 모니터링 시스템</p>
+    </div>
+  </header>
+  
+  <div class="container">
+    <div class="nav">
+      <a href="/" class="active">홈</a>
+      <a href="/status">모니터링 상태</a>
+      <a href="/search">키워드 검색</a>
+    </div>
+    
+    <div class="card">
+      <h2>키워드 검색</h2>
+      <form action="/search" method="GET" class="search-form">
+        <input type="text" name="keyword" placeholder="검색어 입력 (예: 폭싹속았수다)" required>
+        <button type="submit">검색</button>
+      </form>
+    </div>
+    
+    <h2>카테고리 목록</h2>
+    <div class="category-grid">
+      <% categories.forEach(category => { %>
+        <a href="/category/<%= category.id %>" style="text-decoration: none;">
+          <div class="category-card">
+            <h3><%= category.name %></h3>
+            <div class="count"><%= category.count %></div>
+            <p>컨텐츠 수</p>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+  </div>
+</body>
+</html>
