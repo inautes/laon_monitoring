@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 import BrowserService from './services/browser.js';
 import DatabaseService from './models/database.js';
@@ -11,6 +12,17 @@ import CrawlerService from './services/crawler.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
+
+const dataDir = path.join(__dirname, '../data');
+const screenshotsDir = path.join(__dirname, '../screenshots');
+
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+if (!fs.existsSync(screenshotsDir)) {
+  fs.mkdirSync(screenshotsDir, { recursive: true });
+}
 
 const config = {
   site: {
@@ -57,7 +69,7 @@ class MonitoringApp {
   async initialize() {
     console.log('Initializing Laon Monitoring System...');
     
-    this.databaseService.initialize();
+    await this.databaseService.initialize();
     console.log('Database initialized');
     
     this.databaseService.saveOSPInfo({

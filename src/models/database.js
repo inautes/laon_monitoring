@@ -1,16 +1,17 @@
-import sqlite3 from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import initSqlJs from 'sql.js';
 import md5 from 'md5';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-class Database {
+class DatabaseService {
   constructor(dbPath) {
     this.dbPath = dbPath || path.join(__dirname, '../../data/monitoring.db');
-    this.ensureDatabaseDirectory();
     this.db = null;
+    this.SQL = null;
+    this.ensureDatabaseDirectory();
   }
 
   ensureDatabaseDirectory() {
@@ -20,10 +21,24 @@ class Database {
     }
   }
 
-  initialize() {
-    this.db = sqlite3(this.dbPath);
-    this.createTables();
-    return this;
+  async initialize() {
+    try {
+      const SQL = await initSqlJs();
+      this.SQL = SQL;
+      
+      if (fs.existsSync(this.dbPath)) {
+        const data = fs.readFileSync(this.dbPath);
+        this.db = new SQL.Database(new Uint8Array(data));
+      } else {
+        this.db = new SQL.Database();
+      }
+      
+      this.createTables();
+      return this;
+    } catch (error) {
+      console.error('데이터베이스 초기화 오류:', error);
+      throw error;
+    }
   }
 
   createTables() {
@@ -76,6 +91,18 @@ class Database {
         FOREIGN KEY (crawl_id) REFERENCES content(crawl_id)
       );
     `);
+    
+    this.saveToFile();
+  }
+
+  saveToFile() {
+    try {
+      const data = this.db.export();
+      const buffer = Buffer.from(data);
+      fs.writeFileSync(this.dbPath, buffer);
+    } catch (error) {
+      console.error('데이터베이스 파일 저장 오류:', error);
+    }
   }
 
   generateCrawlId(siteId, contentId, regDate) {
@@ -84,111 +111,256 @@ class Database {
   }
 
   saveOSPInfo(ospInfo) {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO osp (site_id, site_name, site_type, site_equ, login_id, login_pw)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    
-    const result = stmt.run(
-      ospInfo.siteId,
-      ospInfo.siteName,
-      ospInfo.siteType,
-      ospInfo.siteEqu,
-      ospInfo.loginId,
-      ospInfo.loginPw
-    );
-    
-    return result;
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO osp (site_id, site_name, site_type, site_equ, login_id, login_pw)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      
+      stmt.bind([
+        ospInfo.siteId,
+        ospInfo.siteName,
+        ospInfo.siteType,
+        ospInfo.siteEqu,
+        ospInfo.loginId,
+        ospInfo.loginPw
+      ]);
+      
+      stmt.step();
+      stmt.free();
+      
+      this.saveToFile();
+      
+      return true;
+    } catch (error) {
+      console.error('OSP 정보 저장 오류:', error);
+      return false;
+    }
   }
 
   saveContentInfo(contentInfo) {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO content (
-        crawl_id, site_id, content_id, title, genre, file_count, 
-        file_size, uploader_id, collection_time, detail_url
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const result = stmt.run(
-      contentInfo.crawlId,
-      contentInfo.siteId,
-      contentInfo.contentId,
-      contentInfo.title,
-      contentInfo.genre,
-      contentInfo.fileCount,
-      contentInfo.fileSize,
-      contentInfo.uploaderId,
-      contentInfo.collectionTime,
-      contentInfo.detailUrl
-    );
-    
-    return result;
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO content (
+          crawl_id, site_id, content_id, title, genre, file_count, 
+          file_size, uploader_id, collection_time, detail_url
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      stmt.bind([
+        contentInfo.crawlId,
+        contentInfo.siteId,
+        contentInfo.contentId,
+        contentInfo.title,
+        contentInfo.genre,
+        contentInfo.fileCount,
+        contentInfo.fileSize,
+        contentInfo.uploaderId,
+        contentInfo.collectionTime,
+        contentInfo.detailUrl
+      ]);
+      
+      stmt.step();
+      stmt.free();
+      
+      this.saveToFile();
+      
+      return true;
+    } catch (error) {
+      console.error('콘텐츠 정보 저장 오류:', error);
+      return false;
+    }
   }
 
   saveContentDetailInfo(detailInfo) {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO content_detail (
-        crawl_id, collection_time, price, price_unit, 
-        partnership_status, capture_filename, status
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const result = stmt.run(
-      detailInfo.crawlId,
-      detailInfo.collectionTime,
-      detailInfo.price,
-      detailInfo.priceUnit,
-      detailInfo.partnershipStatus,
-      detailInfo.captureFilename,
-      detailInfo.status
-    );
-    
-    return result;
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO content_detail (
+          crawl_id, collection_time, price, price_unit, 
+          partnership_status, capture_filename, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      stmt.bind([
+        detailInfo.crawlId,
+        detailInfo.collectionTime,
+        detailInfo.price,
+        detailInfo.priceUnit,
+        detailInfo.partnershipStatus,
+        detailInfo.captureFilename,
+        detailInfo.status
+      ]);
+      
+      stmt.step();
+      stmt.free();
+      
+      this.saveToFile();
+      
+      return true;
+    } catch (error) {
+      console.error('콘텐츠 상세 정보 저장 오류:', error);
+      return false;
+    }
   }
 
   saveFileList(crawlId, fileList) {
-    const stmt = this.db.prepare(`
-      INSERT INTO file_list (crawl_id, filename, file_size)
-      VALUES (?, ?, ?)
-    `);
-    
-    const insertMany = this.db.transaction((items) => {
-      for (const item of items) {
-        stmt.run(crawlId, item.filename, item.fileSize);
+    try {
+      this.db.exec('BEGIN TRANSACTION;');
+      
+      for (const item of fileList) {
+        const stmt = this.db.prepare(`
+          INSERT INTO file_list (crawl_id, filename, file_size)
+          VALUES (?, ?, ?)
+        `);
+        
+        stmt.bind([crawlId, item.filename, item.fileSize]);
+        stmt.step();
+        stmt.free();
       }
-    });
-    
-    insertMany(fileList);
-    return true;
+      
+      this.db.exec('COMMIT;');
+      
+      this.saveToFile();
+      
+      return true;
+    } catch (error) {
+      this.db.exec('ROLLBACK;');
+      console.error('파일 목록 저장 오류:', error);
+      return false;
+    }
   }
 
   getContentByCrawlId(crawlId) {
-    const stmt = this.db.prepare(`
-      SELECT c.*, cd.*
-      FROM content c
-      LEFT JOIN content_detail cd ON c.crawl_id = cd.crawl_id
-      WHERE c.crawl_id = ?
-    `);
-    
-    return stmt.get(crawlId);
+    try {
+      const query = `
+        SELECT c.*, cd.*
+        FROM content c
+        LEFT JOIN content_detail cd ON c.crawl_id = cd.crawl_id
+        WHERE c.crawl_id = '${crawlId}'
+      `;
+      
+      const result = this.db.exec(query);
+      
+      if (result.length > 0 && result[0].values.length > 0) {
+        const columns = result[0].columns;
+        const values = result[0].values[0];
+        
+        const content = {};
+        columns.forEach((col, idx) => {
+          content[col] = values[idx];
+        });
+        
+        return content;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('콘텐츠 조회 오류:', error);
+      return null;
+    }
   }
 
   getFileListByCrawlId(crawlId) {
-    const stmt = this.db.prepare(`
-      SELECT * FROM file_list
-      WHERE crawl_id = ?
-    `);
-    
-    return stmt.all(crawlId);
+    try {
+      const query = `
+        SELECT * FROM file_list
+        WHERE crawl_id = '${crawlId}'
+      `;
+      
+      const result = this.db.exec(query);
+      
+      if (result.length > 0) {
+        const columns = result[0].columns;
+        const values = result[0].values;
+        
+        return values.map(row => {
+          const item = {};
+          columns.forEach((col, idx) => {
+            item[col] = row[idx];
+          });
+          return item;
+        });
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('파일 목록 조회 오류:', error);
+      return [];
+    }
+  }
+
+  getContentByKeyword(keyword) {
+    try {
+      const query = `
+        SELECT c.*, cd.*
+        FROM content c
+        LEFT JOIN content_detail cd ON c.crawl_id = cd.crawl_id
+        WHERE c.title LIKE '%${keyword}%'
+        ORDER BY c.collection_time DESC
+      `;
+      
+      const result = this.db.exec(query);
+      
+      if (result.length > 0) {
+        const columns = result[0].columns;
+        const values = result[0].values;
+        
+        return values.map(row => {
+          const item = {};
+          columns.forEach((col, idx) => {
+            item[col] = row[idx];
+          });
+          return item;
+        });
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('키워드 검색 오류:', error);
+      return [];
+    }
+  }
+
+  getAllContent() {
+    try {
+      const query = `
+        SELECT c.*, cd.*
+        FROM content c
+        LEFT JOIN content_detail cd ON c.crawl_id = cd.crawl_id
+        ORDER BY c.collection_time DESC
+      `;
+      
+      const result = this.db.exec(query);
+      
+      if (result.length > 0) {
+        const columns = result[0].columns;
+        const values = result[0].values;
+        
+        return values.map(row => {
+          const item = {};
+          columns.forEach((col, idx) => {
+            item[col] = row[idx];
+          });
+          return item;
+        });
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('모든 콘텐츠 조회 오류:', error);
+      return [];
+    }
   }
 
   close() {
     if (this.db) {
+      this.saveToFile();
       this.db.close();
+      this.db = null;
     }
   }
 }
 
-export default Database;
+export default DatabaseService;
