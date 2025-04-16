@@ -72,6 +72,11 @@ class MonitoringApp {
     await this.databaseService.initialize();
     console.log('Database initialized');
     
+    console.log('사이트 인증 정보:', {
+      username: this.config.site.username ? '설정됨' : '미설정',
+      password: this.config.site.password ? '설정됨' : '미설정'
+    });
+    
     this.databaseService.saveOSPInfo({
       siteId: this.config.site.id,
       siteName: this.config.site.name,
