@@ -122,15 +122,27 @@ class MonitoringApp {
         ANIME: 'CG005'
       };
       
+      const pageCount = this.config.pageCount || 2;
+      console.log(`Page count per category: ${pageCount}`);
+      
       for (const [categoryName, categoryCode] of Object.entries(categories)) {
         console.log(`Processing category: ${categoryName} (${categoryCode})`);
-        const results = await this.crawlerService.crawlCategory(categoryCode, 1);
+        const results = await this.crawlerService.crawlCategory(categoryCode, pageCount);
         console.log(`Processed ${results.length} content items in category ${categoryName}`);
       }
       
       console.log(`Searching for keyword: ${this.config.keyword}`);
-      const keywordResults = await this.crawlerService.searchByKeyword(this.config.keyword);
-      console.log(`Found ${keywordResults.length} results for keyword: ${this.config.keyword}`);
+      
+      try {
+        const keywordResults = await this.crawlerService.searchByKeyword(this.config.keyword);
+        console.log(`Found ${keywordResults.length} results for keyword: ${this.config.keyword}`);
+        
+        for (const result of keywordResults) {
+          console.log(`Found content with keyword: ${result.title}`);
+        }
+      } catch (error) {
+        console.error(`Error searching for keyword: ${error.message}`);
+      }
       
       console.log('Monitoring completed successfully');
     } catch (error) {
