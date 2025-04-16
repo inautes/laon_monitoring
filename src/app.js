@@ -13,6 +13,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
+console.log('환경 변수 확인:');
+console.log('FILEIS_URL:', process.env.FILEIS_URL);
+console.log('FILEIS_USERNAME 존재 여부:', !!process.env.FILEIS_USERNAME);
+console.log('FILEIS_PASSWORD 존재 여부:', !!process.env.FILEIS_PASSWORD);
+
 const dataDir = path.join(__dirname, '../data');
 const screenshotsDir = path.join(__dirname, '../screenshots');
 
@@ -71,6 +76,11 @@ class MonitoringApp {
     
     await this.databaseService.initialize();
     console.log('Database initialized');
+    
+    console.log('사이트 인증 정보:', {
+      username: this.config.site.username ? '설정됨' : '미설정',
+      password: this.config.site.password ? '설정됨' : '미설정'
+    });
     
     this.databaseService.saveOSPInfo({
       siteId: this.config.site.id,
