@@ -1,4 +1,4 @@
-import MonitoringApp from '../mockApp.js';
+import MonitoringApp from '../app.js';
 import config from '../config/index.js';
 import secureAuth from '../services/secureAuth.js';
 
