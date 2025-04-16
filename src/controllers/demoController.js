@@ -96,6 +96,12 @@ class DemoController {
         }
       ]
     };
+    
+    this.getIndex = this.getIndex.bind(this);
+    this.getCategory = this.getCategory.bind(this);
+    this.getContentDetail = this.getContentDetail.bind(this);
+    this.getSearch = this.getSearch.bind(this);
+    this.getMonitoringStatus = this.getMonitoringStatus.bind(this);
   }
 
   getIndex(req, res) {
