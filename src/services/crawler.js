@@ -113,8 +113,18 @@ class CrawlerService {
         evidenceImagePath
       );
       
-      const remotePath = this.ftpService.generateRemotePath(`evidence_${crawlId}.png`);
-      await this.ftpService.uploadFile(evidenceImagePath, remotePath);
+      let remotePath = '';
+      try {
+        remotePath = this.ftpService.generateRemotePath(`evidence_${crawlId}.png`);
+        
+        await this.ftpService.uploadFile(evidenceImagePath, remotePath).catch(error => {
+          console.log(`FTP 업로드 오류, 계속 진행: ${error.message}`);
+          remotePath = evidenceImagePath; // 로컬 경로를 대신 사용
+        });
+      } catch (error) {
+        console.log(`FTP 경로 생성 오류, 로컬 경로 사용: ${error.message}`);
+        remotePath = evidenceImagePath; // 로컬 경로를 대신 사용
+      }
       
       const contentInfo = {
         crawlId,
@@ -137,7 +147,7 @@ class CrawlerService {
         price: detailInfo.price || '',
         priceUnit: detailInfo.priceUnit || '',
         partnershipStatus: detailInfo.partnershipStatus || 'U',
-        captureFilename: remotePath,
+        captureFilename: remotePath, // FTP 업로드 실패 시 로컬 경로 사용
         status: containsKeyword ? 'KEYWORD_FOUND' : 'NORMAL'
       };
       

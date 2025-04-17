@@ -112,18 +112,36 @@ class DatabaseService {
 
   saveOSPInfo(ospInfo) {
     try {
+      const safeOspInfo = {
+        siteId: ospInfo?.siteId || '',
+        siteName: ospInfo?.siteName || '',
+        siteType: ospInfo?.siteType || '',
+        siteEqu: ospInfo?.siteEqu !== undefined ? ospInfo.siteEqu : 0,
+        loginId: ospInfo?.loginId || '',
+        loginPw: ospInfo?.loginPw || ''
+      };
+      
+      console.log('OSP 정보 저장 (안전한 값 적용):', {
+        siteId: safeOspInfo.siteId,
+        siteName: safeOspInfo.siteName,
+        siteType: safeOspInfo.siteType,
+        siteEqu: safeOspInfo.siteEqu,
+        loginId: safeOspInfo.loginId ? '설정됨' : '미설정',
+        loginPw: safeOspInfo.loginPw ? '설정됨' : '미설정'
+      });
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO osp (site_id, site_name, site_type, site_equ, login_id, login_pw)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
       
       stmt.bind([
-        ospInfo.siteId,
-        ospInfo.siteName,
-        ospInfo.siteType,
-        ospInfo.siteEqu,
-        ospInfo.loginId,
-        ospInfo.loginPw
+        safeOspInfo.siteId,
+        safeOspInfo.siteName,
+        safeOspInfo.siteType,
+        safeOspInfo.siteEqu,
+        safeOspInfo.loginId,
+        safeOspInfo.loginPw
       ]);
       
       stmt.step();
@@ -140,6 +158,19 @@ class DatabaseService {
 
   saveContentInfo(contentInfo) {
     try {
+      const safeContentInfo = {
+        crawlId: contentInfo?.crawlId || '',
+        siteId: contentInfo?.siteId || '',
+        contentId: contentInfo?.contentId || '',
+        title: contentInfo?.title || '',
+        genre: contentInfo?.genre || '',
+        fileCount: contentInfo?.fileCount !== undefined ? contentInfo.fileCount : 0,
+        fileSize: contentInfo?.fileSize || '',
+        uploaderId: contentInfo?.uploaderId || '',
+        collectionTime: contentInfo?.collectionTime || new Date().toISOString(),
+        detailUrl: contentInfo?.detailUrl || ''
+      };
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO content (
           crawl_id, site_id, content_id, title, genre, file_count, 
@@ -149,16 +180,16 @@ class DatabaseService {
       `);
       
       stmt.bind([
-        contentInfo.crawlId,
-        contentInfo.siteId,
-        contentInfo.contentId,
-        contentInfo.title,
-        contentInfo.genre,
-        contentInfo.fileCount,
-        contentInfo.fileSize,
-        contentInfo.uploaderId,
-        contentInfo.collectionTime,
-        contentInfo.detailUrl
+        safeContentInfo.crawlId,
+        safeContentInfo.siteId,
+        safeContentInfo.contentId,
+        safeContentInfo.title,
+        safeContentInfo.genre,
+        safeContentInfo.fileCount,
+        safeContentInfo.fileSize,
+        safeContentInfo.uploaderId,
+        safeContentInfo.collectionTime,
+        safeContentInfo.detailUrl
       ]);
       
       stmt.step();
@@ -175,6 +206,16 @@ class DatabaseService {
 
   saveContentDetailInfo(detailInfo) {
     try {
+      const safeDetailInfo = {
+        crawlId: detailInfo?.crawlId || '',
+        collectionTime: detailInfo?.collectionTime || new Date().toISOString(),
+        price: detailInfo?.price || '',
+        priceUnit: detailInfo?.priceUnit || '',
+        partnershipStatus: detailInfo?.partnershipStatus || '',
+        captureFilename: detailInfo?.captureFilename || '',
+        status: detailInfo?.status || ''
+      };
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO content_detail (
           crawl_id, collection_time, price, price_unit, 
@@ -184,13 +225,13 @@ class DatabaseService {
       `);
       
       stmt.bind([
-        detailInfo.crawlId,
-        detailInfo.collectionTime,
-        detailInfo.price,
-        detailInfo.priceUnit,
-        detailInfo.partnershipStatus,
-        detailInfo.captureFilename,
-        detailInfo.status
+        safeDetailInfo.crawlId,
+        safeDetailInfo.collectionTime,
+        safeDetailInfo.price,
+        safeDetailInfo.priceUnit,
+        safeDetailInfo.partnershipStatus,
+        safeDetailInfo.captureFilename,
+        safeDetailInfo.status
       ]);
       
       stmt.step();
@@ -207,15 +248,38 @@ class DatabaseService {
 
   saveFileList(crawlId, fileList) {
     try {
+      const safeCrawlId = crawlId || '';
+      const safeFileList = Array.isArray(fileList) ? fileList : [];
+      
+      if (!safeCrawlId) {
+        console.warn('파일 목록 저장 경고: crawlId가 비어 있습니다');
+        return false;
+      }
+      
+      if (safeFileList.length === 0) {
+        console.log('파일 목록 저장: 파일 목록이 비어 있습니다');
+        return true; // 빈 목록은 오류가 아님
+      }
+      
       this.db.exec('BEGIN TRANSACTION;');
       
-      for (const item of fileList) {
+      for (const item of safeFileList) {
+        const safeItem = {
+          filename: item?.filename || '',
+          fileSize: item?.fileSize || ''
+        };
+        
+        if (!safeItem.filename) {
+          console.warn('파일 목록 저장 경고: 파일 이름이 비어 있는 항목 건너뜀');
+          continue;
+        }
+        
         const stmt = this.db.prepare(`
           INSERT INTO file_list (crawl_id, filename, file_size)
           VALUES (?, ?, ?)
         `);
         
-        stmt.bind([crawlId, item.filename, item.fileSize]);
+        stmt.bind([safeCrawlId, safeItem.filename, safeItem.fileSize]);
         stmt.step();
         stmt.free();
       }
@@ -226,7 +290,11 @@ class DatabaseService {
       
       return true;
     } catch (error) {
-      this.db.exec('ROLLBACK;');
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch (rollbackError) {
+        console.error('트랜잭션 롤백 오류:', rollbackError);
+      }
       console.error('파일 목록 저장 오류:', error);
       return false;
     }

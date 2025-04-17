@@ -2,6 +2,29 @@ import puppeteer from 'puppeteer';
 import puppeteerExtra from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function retry(fn, retries = 3, delay = 1000, backoff = 2) {
+  let lastError = null;
+  
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      console.log(`시도 ${attempt + 1}/${retries} 실패: ${error.message}`);
+      lastError = error;
+      
+      if (attempt < retries - 1) {
+        const waitTime = delay * Math.pow(backoff, attempt);
+        console.log(`${waitTime}ms 후 재시도...`);
+        await sleep(waitTime);
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 class BrowserService {
   constructor(config) {
     this.config = config || {
@@ -88,6 +111,8 @@ class BrowserService {
 
   async navigateToCategory(category) {
     try {
+      console.log(`카테고리로 이동: ${category}`);
+      
       const categoryUrls = {
         'CG001': 'https://fileis.com/contents/index.htm?category1=MVO', // 영화
         'CG002': 'https://fileis.com/contents/index.htm?category1=DRA', // 드라마
@@ -97,197 +122,252 @@ class BrowserService {
       
       const url = categoryUrls[category];
       if (!url) {
-        throw new Error(`Invalid category code: ${category}`);
+        throw new Error(`알 수 없는 카테고리: ${category}`);
       }
       
-      await this.page.goto(url, { waitUntil: 'networkidle2' });
-      
-      const currentUrl = this.page.url();
-      return currentUrl.includes(url);
+      return await retry(async () => {
+        const response = await this.page.goto(url, { 
+          waitUntil: 'networkidle2',
+          timeout: this.config.timeout
+        });
+        
+        if (!response || !response.ok()) {
+          throw new Error(`카테고리 페이지 로드 실패: ${response ? response.status() : 'No response'}`);
+        }
+        
+        await this.page.waitForSelector('.list_table, table.board_list, .content-list, .file-list', { timeout: this.config.timeout });
+        
+        const currentUrl = this.page.url();
+        if (!currentUrl.includes(url.split('?')[0])) {
+          throw new Error(`카테고리 URL 불일치: ${currentUrl}`);
+        }
+        
+        return true;
+      });
     } catch (error) {
-      console.error(`Navigation to category ${category} failed:`, error);
+      console.error(`카테고리 이동 오류: ${error.message}`);
       return false;
     }
   }
 
   async getContentList(category, pageNum = 1) {
     try {
+      console.log(`컨텐츠 목록 가져오기: 카테고리=${category}, 페이지=${pageNum}`);
+      
       if (category) {
-        await this.navigateToCategory(category);
+        const categorySuccess = await this.navigateToCategory(category);
+        if (!categorySuccess) {
+          console.error(`카테고리 이동 실패: ${category}`);
+          return [];
+        }
       }
       
-      if (pageNum > 1) {
-        try {
-          const paginationSelector = '.pagination a, .paging a, a.page-link, a[href*="page="]';
-          const pageLinks = await this.page.$$(paginationSelector);
-          
-          if (pageLinks.length > 0) {
-            for (const link of pageLinks) {
-              const linkText = await this.page.evaluate(el => el.textContent.trim(), link);
-              if (linkText === String(pageNum)) {
-                await link.click();
-                try {
-                  await this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: this.config.timeout });
-                } catch (error) {
-                  console.warn('Pagination navigation timeout:', error.message);
+      return await retry(async () => {
+        if (pageNum > 1) {
+          try {
+            console.log(`페이지 ${pageNum}로 이동 시도`);
+            const paginationSelector = '.pagination a, .paging a, a.page-link, a[href*="page="]';
+            await this.page.waitForSelector(paginationSelector, { timeout: this.config.timeout });
+            
+            const pageLinks = await this.page.$$(paginationSelector);
+            
+            if (pageLinks.length > 0) {
+              let pageFound = false;
+              
+              for (const link of pageLinks) {
+                const linkText = await this.page.evaluate(el => el.textContent.trim(), link);
+                if (linkText === String(pageNum)) {
+                  await link.click();
+                  await this.page.waitForNavigation({ 
+                    waitUntil: 'networkidle2', 
+                    timeout: this.config.timeout 
+                  });
+                  pageFound = true;
+                  break;
                 }
-                break;
               }
+              
+              if (!pageFound) {
+                console.warn(`페이지 ${pageNum}를 찾을 수 없음`);
+              }
+            } else {
+              console.warn('페이지네이션 링크를 찾을 수 없음');
             }
-          }
-        } catch (error) {
-          console.warn('Pagination handling error:', error.message);
-        }
-      }
-      
-      try {
-        await this.page.waitForSelector('.list_table, table.board_list, .content-list, .file-list', { timeout: this.config.timeout });
-      } catch (error) {
-        console.warn('Content list selector timeout:', error.message);
-      }
-      
-      const contentList = await this.page.evaluate(() => {
-        const tableSelectors = ['.list_table', 'table.board_list', '.content-list', '.file-list'];
-        let table = null;
-        
-        for (const selector of tableSelectors) {
-          const element = document.querySelector(selector);
-          if (element) {
-            table = element;
-            break;
+          } catch (error) {
+            console.warn(`페이지네이션 처리 오류: ${error.message}`);
+            throw new Error(`페이지 ${pageNum}로 이동 실패: ${error.message}`);
           }
         }
         
-        if (!table) return [];
+        const tableSelector = '.list_table, table.board_list, .content-list, .file-list';
+        await this.page.waitForSelector(tableSelector, { timeout: this.config.timeout });
         
-        const rows = Array.from(table.querySelectorAll('tr:not(.list_head):not(.thead):not(th)'));
-        
-        return rows.map(row => {
-          const titleElement = row.querySelector('.list_title a, td.title a, .subject a, a[href*="content_id"]');
-          const sizeElement = row.querySelector('.list_size, td.size, .filesize, td:nth-child(3)');
-          const uploaderElement = row.querySelector('.list_uploader, td.uploader, .username, td:nth-child(4)');
+        const contentList = await this.page.evaluate(() => {
+          const tableSelectors = ['.list_table', 'table.board_list', '.content-list', '.file-list'];
+          let table = null;
           
-          if (!titleElement) return null;
-          
-          let contentId = '';
-          const href = titleElement.getAttribute('href') || '';
-          
-          const contentIdPatterns = [
-            /content_id=([^&]+)/,
-            /id=([^&]+)/,
-            /view\/([^\/]+)/,
-            /([0-9]+)$/
-          ];
-          
-          for (const pattern of contentIdPatterns) {
-            const match = href.match(pattern);
-            if (match && match[1]) {
-              contentId = match[1];
+          for (const selector of tableSelectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+              table = element;
               break;
             }
           }
           
-          return {
-            contentId: contentId,
-            title: titleElement.textContent.trim(),
-            detailUrl: titleElement.getAttribute('href') || '',
-            fileSize: sizeElement ? sizeElement.textContent.trim() : '',
-            uploaderId: uploaderElement ? uploaderElement.textContent.trim() : ''
-          };
-        }).filter(item => item !== null);
+          if (!table) return [];
+          
+          const rows = Array.from(table.querySelectorAll('tr:not(.list_head):not(.thead):not(th)'));
+          
+          return rows.map(row => {
+            const titleElement = row.querySelector('.list_title a, td.title a, .subject a, a[href*="content_id"]');
+            const sizeElement = row.querySelector('.list_size, td.size, .filesize, td:nth-child(3)');
+            const uploaderElement = row.querySelector('.list_uploader, td.uploader, .username, td:nth-child(4)');
+            
+            if (!titleElement) return null;
+            
+            let contentId = '';
+            const href = titleElement.getAttribute('href') || '';
+            
+            const contentIdPatterns = [
+              /content_id=([^&]+)/,
+              /id=([^&]+)/,
+              /view\/([^\/]+)/,
+              /([0-9]+)$/
+            ];
+            
+            for (const pattern of contentIdPatterns) {
+              const match = href.match(pattern);
+              if (match && match[1]) {
+                contentId = match[1];
+                break;
+              }
+            }
+            
+            return {
+              contentId: contentId,
+              title: titleElement.textContent.trim(),
+              detailUrl: titleElement.getAttribute('href') || '',
+              fileSize: sizeElement ? sizeElement.textContent.trim() : '',
+              uploaderId: uploaderElement ? uploaderElement.textContent.trim() : ''
+            };
+          }).filter(item => item !== null);
+        });
+        
+        console.log(`컨텐츠 목록 ${contentList.length}개 항목 추출 완료`);
+        return contentList;
       });
-      
-      return contentList;
     } catch (error) {
-      console.error('Failed to get content list:', error);
+      console.error(`컨텐츠 목록 가져오기 실패: ${error.message}`);
       return [];
     }
   }
 
   async getContentDetail(url) {
     try {
-      await this.page.goto(url, { waitUntil: 'networkidle2' });
+      console.log(`컨텐츠 상세정보 가져오기: ${url}`);
       
-      try {
-        await this.page.waitForSelector('.content_detail, .view_content, .board_view, .file-detail', { timeout: this.config.timeout });
-      } catch (error) {
-        console.warn('Content detail selector timeout:', error.message);
+      if (!url) {
+        console.error('URL이 제공되지 않음');
+        return null;
       }
       
-      const contentDetail = await this.page.evaluate(() => {
-        const detailSelectors = ['.content_detail', '.view_content', '.board_view', '.file-detail'];
-        let detailContainer = null;
+      return await retry(async () => {
+        const response = await this.page.goto(url, { 
+          waitUntil: 'networkidle2',
+          timeout: this.config.timeout
+        });
         
-        for (const selector of detailSelectors) {
-          const element = document.querySelector(selector);
-          if (element) {
-            detailContainer = element;
-            break;
+        if (!response || !response.ok()) {
+          throw new Error(`상세 페이지 로드 실패: ${response ? response.status() : 'No response'}`);
+        }
+        
+        const detailSelector = '.content_detail, .view_content, .board_view, .file-detail';
+        try {
+          await this.page.waitForSelector(detailSelector, { timeout: this.config.timeout });
+        } catch (error) {
+          console.warn(`상세 페이지 요소 대기 시간 초과: ${error.message}`);
+        }
+        
+        const contentDetail = await this.page.evaluate(() => {
+          const detailSelectors = ['.content_detail', '.view_content', '.board_view', '.file-detail'];
+          let detailContainer = null;
+          
+          for (const selector of detailSelectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+              detailContainer = element;
+              break;
+            }
           }
-        }
-        
-        if (!detailContainer) {
-          detailContainer = document.body;
-        }
-        
-        const titleElement = document.querySelector('.content_title, .view_title, h1.title, .subject, .file-name');
-        const sizeElement = document.querySelector('.content_size, .file_size, .size, span:contains("용량")');
-        const priceElement = document.querySelector('.content_price, .price, .point, span:contains("포인트")');
-        const uploaderElement = document.querySelector('.content_uploader, .uploader, .author, .username');
-        const partnershipElement = document.querySelector('.partnership_badge, .partner, .official');
-        
-        const fileListSelectors = ['.file_list li', '.files li', '.file-items div', 'table.files tr'];
-        let fileListElements = [];
-        
-        for (const selector of fileListSelectors) {
-          const elements = document.querySelectorAll(selector);
-          if (elements && elements.length > 0) {
-            fileListElements = Array.from(elements);
-            break;
+          
+          if (!detailContainer) {
+            detailContainer = document.body;
           }
-        }
-        
-        const fileList = fileListElements.map(item => {
-          const nameElement = item.querySelector('.file_name, .filename, a, td:first-child');
-          const sizeElement = item.querySelector('.file_size, .filesize, .size, td:nth-child(2)');
+          
+          const titleElement = document.querySelector('.content_title, .view_title, h1.title, .subject, .file-name');
+          const sizeElement = document.querySelector('.content_size, .file_size, .size, span:contains("용량")');
+          const priceElement = document.querySelector('.content_price, .price, .point, span:contains("포인트")');
+          const uploaderElement = document.querySelector('.content_uploader, .uploader, .author, .username');
+          const partnershipElement = document.querySelector('.partnership_badge, .partner, .official');
+          
+          const fileListSelectors = ['.file_list li', '.files li', '.file-items div', 'table.files tr'];
+          let fileListElements = [];
+          
+          for (const selector of fileListSelectors) {
+            const elements = document.querySelectorAll(selector);
+            if (elements && elements.length > 0) {
+              fileListElements = Array.from(elements);
+              break;
+            }
+          }
+          
+          const fileList = fileListElements.map(item => {
+            const nameElement = item.querySelector('.file_name, .filename, a, td:first-child');
+            const sizeElement = item.querySelector('.file_size, .filesize, .size, td:nth-child(2)');
+            
+            return {
+              filename: nameElement ? nameElement.textContent.trim() : '',
+              fileSize: sizeElement ? sizeElement.textContent.trim() : ''
+            };
+          });
+          
+          let price = '';
+          let priceUnit = '포인트';
+          
+          if (priceElement) {
+            price = priceElement.textContent.trim();
+            const priceMatch = price.match(/(\d+)/);
+            if (priceMatch) {
+              price = priceMatch[1];
+            }
+            
+            const unitMatch = price.match(/(\d+)\s*([^\d\s]+)/);
+            if (unitMatch) {
+              price = unitMatch[1];
+              priceUnit = unitMatch[2];
+            }
+          }
           
           return {
-            filename: nameElement ? nameElement.textContent.trim() : '',
-            fileSize: sizeElement ? sizeElement.textContent.trim() : ''
+            title: titleElement ? titleElement.textContent.trim() : '',
+            fileSize: sizeElement ? sizeElement.textContent.trim() : '',
+            price: price,
+            priceUnit: priceUnit,
+            uploaderId: uploaderElement ? uploaderElement.textContent.trim() : '',
+            partnershipStatus: partnershipElement ? 'Y' : 'N',
+            fileList: fileList
           };
         });
         
-        let price = '';
-        let priceUnit = '포인트';
-        
-        if (priceElement) {
-          price = priceElement.textContent.trim();
-          const priceMatch = price.match(/(\d+)/);
-          if (priceMatch) {
-            price = priceMatch[1];
-          }
-          
-          const unitMatch = price.match(/(\d+)\s*([^\d\s]+)/);
-          if (unitMatch) {
-            price = unitMatch[1];
-            priceUnit = unitMatch[2];
-          }
+        if (!contentDetail || !contentDetail.title) {
+          throw new Error('컨텐츠 상세정보를 추출할 수 없음');
         }
         
-        return {
-          title: titleElement ? titleElement.textContent.trim() : '',
-          fileSize: sizeElement ? sizeElement.textContent.trim() : '',
-          price: price,
-          priceUnit: priceUnit,
-          uploaderId: uploaderElement ? uploaderElement.textContent.trim() : '',
-          partnershipStatus: partnershipElement ? 'Y' : 'N',
-          fileList: fileList
-        };
+        console.log(`컨텐츠 상세정보 추출 완료: ${contentDetail.title}`);
+        return contentDetail;
       });
-      
-      return contentDetail;
     } catch (error) {
-      console.error('Failed to get content detail:', error);
+      console.error(`컨텐츠 상세정보 가져오기 실패: ${error.message}`);
       return null;
     }
   }

@@ -74,8 +74,13 @@ class MonitoringApp {
   async initialize() {
     console.log('Initializing Laon Monitoring System...');
     
-    await this.databaseService.initialize();
-    console.log('Database initialized');
+    try {
+      await this.databaseService.initialize();
+      console.log('Database initialized');
+    } catch (error) {
+      console.error('데이터베이스 초기화 오류:', error.message);
+      throw new Error('데이터베이스 초기화 실패');
+    }
     
     console.log('사이트 인증 정보:', {
       username: this.config.site.username ? '설정됨' : '미설정',
@@ -83,23 +88,53 @@ class MonitoringApp {
     });
     
     this.databaseService.saveOSPInfo({
-      siteId: this.config.site.id,
-      siteName: this.config.site.name,
-      siteType: this.config.site.type,
-      siteEqu: this.config.site.equ,
-      loginId: this.config.site.username,
-      loginPw: this.config.site.password
+      siteId: this.config.site.id || '',
+      siteName: this.config.site.name || '',
+      siteType: this.config.site.type || '',
+      siteEqu: this.config.site.equ !== undefined ? this.config.site.equ : 0,
+      loginId: this.config.site.username || '',
+      loginPw: this.config.site.password || ''
     });
     console.log('OSP information saved');
     
-    await this.browserService.initialize();
-    console.log('Browser initialized');
+    try {
+      await this.browserService.initialize();
+      console.log('Browser initialized');
+    } catch (error) {
+      console.error('브라우저 초기화 오류:', error.message);
+      throw new Error('브라우저 초기화 실패');
+    }
     
-    await this.screenshotService.initialize();
-    console.log('Screenshot service initialized');
+    try {
+      await this.screenshotService.initialize();
+      console.log('Screenshot service initialized');
+    } catch (error) {
+      console.error('스크린샷 서비스 초기화 오류:', error.message);
+      console.log('스크린샷 서비스 없이 계속 진행합니다.');
+    }
     
-    await this.crawlerService.initialize();
-    console.log('Crawler initialized');
+    if (process.env.DISABLE_FTP !== 'true') {
+      try {
+        await this.ftpService.connect().catch(error => {
+          console.log(`FTP 연결 실패, 계속 진행: ${error.message}`);
+          process.env.DISABLE_FTP = 'true'; // 런타임에 FTP 비활성화
+        });
+        console.log('FTP service initialized');
+      } catch (error) {
+        console.log(`FTP 초기화 오류, 계속 진행: ${error.message}`);
+        process.env.DISABLE_FTP = 'true'; // 런타임에 FTP 비활성화
+      }
+    } else {
+      console.log('FTP 서비스 비활성화됨');
+    }
+    
+    try {
+      await this.crawlerService.initialize();
+      console.log('Crawler initialized');
+    } catch (error) {
+      console.error('크롤러 초기화 오류:', error.message);
+      throw new Error('크롤러 초기화 실패');
+    }
     
     console.log('Initialization complete');
   }
