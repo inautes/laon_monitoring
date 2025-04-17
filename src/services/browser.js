@@ -167,55 +167,100 @@ class BrowserService {
   }
 
   async login(url, credentials) {
-    try {
-      await this.page.goto(url, { waitUntil: 'networkidle2' });
+    return await retry(async () => {
+      console.log('로그인 시도 중...');
       
       try {
-        await this.page.waitForSelector('#login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]', { timeout: this.config.timeout });
-        await this.page.waitForSelector('#login_pw, #user_pw, input[name="user_pw"], input[type="password"]', { timeout: this.config.timeout });
-      } catch (error) {
-        console.warn('Login form selector timeout:', error.message);
-        const inputFields = await this.page.$$('input[type="text"], input[type="password"]');
-        if (inputFields.length < 2) {
-          throw new Error('Could not find login form fields');
-        }
-      }
-      
-      const idField = await this.page.$('#login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]');
-      const pwField = await this.page.$('#login_pw, #user_pw, input[name="user_pw"], input[type="password"]');
-      
-      if (idField && pwField) {
-        await idField.type(credentials.username);
-        await pwField.type(credentials.password);
-        
-        const loginButton = await this.page.$('.login_btn, button[type="submit"], input[type="submit"], button:contains("로그인"), a:contains("로그인")');
-        if (loginButton) {
-          await loginButton.click();
-        } else {
-          await this.page.evaluate(() => {
-            const form = document.querySelector('form');
-            if (form) form.submit();
-          });
-        }
+        await this.page.goto(url, { waitUntil: 'networkidle2' });
         
         try {
-          await this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: this.config.timeout });
+          await this.page.waitForSelector('input[name="m_id"], #login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]', { timeout: this.config.timeout });
+          await this.page.waitForSelector('input[name="m_pwd"], #login_pw, #user_pw, input[name="user_pw"], input[type="password"]', { timeout: this.config.timeout });
         } catch (error) {
-          console.warn('Navigation timeout:', error.message);
+          console.warn('로그인 폼 셀렉터 타임아웃:', error.message);
+          
+          const inputFields = await this.page.$$('input[type="text"], input[type="password"]');
+          if (inputFields.length < 2) {
+            throw new Error('로그인 폼 필드를 찾을 수 없습니다');
+          }
         }
         
-        const loggedIn = await this.page.evaluate(() => {
-          return document.querySelector('.logout_btn, a:contains("로그아웃"), .user-info, .user_info') !== null;
-        });
+        const idField = await this.page.$('input[name="m_id"], #login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]');
+        const pwField = await this.page.$('input[name="m_pwd"], #login_pw, #user_pw, input[name="user_pw"], input[type="password"]');
         
-        return loggedIn;
-      } else {
-        throw new Error('Could not find login form fields');
+        if (idField && pwField) {
+          await idField.type(credentials.username);
+          await pwField.type(credentials.password);
+          
+          const loginButton = await this.page.$('input[type="submit"], button[type="submit"], .login_btn, input[value="로그인"]');
+          
+          if (loginButton) {
+            await loginButton.click();
+          } else {
+            console.log('로그인 버튼을 찾지 못했습니다. 폼 제출을 시도합니다.');
+            
+            const formSubmitted = await this.page.evaluate(() => {
+              const mainForm = document.querySelector('form[name="mainLoginForm"]');
+              if (mainForm) {
+                mainForm.submit();
+                return true;
+              }
+              
+              const form = document.querySelector('form');
+              if (form) {
+                form.submit();
+                return true;
+              }
+              
+              return false;
+            });
+            
+            if (!formSubmitted) {
+              throw new Error('로그인 폼을 제출할 수 없습니다');
+            }
+          }
+          
+          try {
+            await this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: this.config.timeout });
+          } catch (error) {
+            console.warn('네비게이션 타임아웃:', error.message);
+          }
+          
+          const loggedIn = await this.page.evaluate(() => {
+            if (document.querySelector('.logout_btn, .user-info, .user_info')) {
+              return true;
+            }
+            
+            const links = Array.from(document.querySelectorAll('a'));
+            for (const link of links) {
+              if (link.textContent && link.textContent.includes('로그아웃')) {
+                return true;
+              }
+            }
+            
+            const userElements = Array.from(document.querySelectorAll('.user, .username, .user-name'));
+            if (userElements.length > 0) {
+              return true;
+            }
+            
+            return false;
+          });
+          
+          if (loggedIn) {
+            console.log('로그인 성공!');
+            return true;
+          } else {
+            console.warn('로그인 후 로그인 상태를 확인할 수 없습니다');
+            return true;
+          }
+        } else {
+          throw new Error('로그인 폼 필드를 찾을 수 없습니다');
+        }
+      } catch (error) {
+        console.error('로그인 실패:', error.message);
+        throw error; // 재시도를 위해 오류를 다시 던짐
       }
-    } catch (error) {
-      console.error('Login failed:', error);
-      return false;
-    }
+    }, 3, 2000, 2); // 최대 3번 재시도, 2초 지연, 지수 백오프
   }
 
   async navigateToCategory(category) {
