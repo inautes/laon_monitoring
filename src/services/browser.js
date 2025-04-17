@@ -173,28 +173,95 @@ class BrowserService {
       try {
         await this.page.goto(url, { waitUntil: 'networkidle2' });
         
+        console.log('로그인 폼 필드 찾는 중...');
+        
         try {
-          await this.page.waitForSelector('input[name="m_id"], #login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]', { timeout: this.config.timeout });
-          await this.page.waitForSelector('input[name="m_pwd"], #login_pw, #user_pw, input[name="user_pw"], input[type="password"]', { timeout: this.config.timeout });
-        } catch (error) {
-          console.warn('로그인 폼 셀렉터 타임아웃:', error.message);
+          await this.page.waitForSelector('form#mainLoginForm', { timeout: this.config.timeout / 2 });
+          console.log('mainLoginForm 폼 발견');
           
-          const inputFields = await this.page.$$('input[type="text"], input[type="password"]');
-          if (inputFields.length < 2) {
-            throw new Error('로그인 폼 필드를 찾을 수 없습니다');
+          await this.page.waitForSelector('input[name="m_id"]', { timeout: this.config.timeout / 2 });
+          console.log('아이디 필드(m_id) 발견');
+          
+          await this.page.waitForSelector('input[name="m_pwd"]', { timeout: this.config.timeout / 2 });
+          console.log('비밀번호 필드(m_pwd) 발견');
+        } catch (error) {
+          console.warn('fileis.com 전용 셀렉터 실패, 일반 셀렉터로 시도:', error.message);
+          
+          try {
+            await this.page.waitForSelector('input[type="text"][name*="id"], #login_id, #user_id, input[name="user_id"]', { timeout: this.config.timeout / 2 });
+            await this.page.waitForSelector('input[type="password"], #login_pw, #user_pw, input[name="user_pw"]', { timeout: this.config.timeout / 2 });
+          } catch (error) {
+            console.warn('일반 로그인 폼 셀렉터 타임아웃:', error.message);
+            
+            const inputFields = await this.page.$$('input[type="text"], input[type="password"]');
+            if (inputFields.length < 2) {
+              throw new Error('로그인 폼 필드를 찾을 수 없습니다');
+            }
           }
         }
         
-        const idField = await this.page.$('input[name="m_id"], #login_id, #user_id, input[name="user_id"], input[type="text"][name*="id"]');
-        const pwField = await this.page.$('input[name="m_pwd"], #login_pw, #user_pw, input[name="user_pw"], input[type="password"]');
+        let idField = await this.page.$('input[name="m_id"]');
+        let pwField = await this.page.$('input[name="m_pwd"]');
+        
+        if (!idField || !pwField) {
+          console.log('fileis.com 전용 셀렉터 실패, 일반 셀렉터 사용');
+          idField = await this.page.$('input[type="text"][name*="id"], #login_id, #user_id, input[name="user_id"]');
+          pwField = await this.page.$('input[type="password"], #login_pw, #user_pw, input[name="user_pw"]');
+        }
         
         if (idField && pwField) {
+          console.log('아이디 및 비밀번호 필드 발견, 입력 시작');
+          
+          await this.page.evaluate(() => {
+            const idField = document.querySelector('input[name="m_id"]') || 
+                           document.querySelector('input[type="text"][name*="id"]') || 
+                           document.querySelector('#login_id') || 
+                           document.querySelector('#user_id') || 
+                           document.querySelector('input[name="user_id"]');
+            
+            const pwField = document.querySelector('input[name="m_pwd"]') || 
+                           document.querySelector('input[type="password"]') || 
+                           document.querySelector('#login_pw') || 
+                           document.querySelector('#user_pw') || 
+                           document.querySelector('input[name="user_pw"]');
+            
+            if (idField) idField.value = '';
+            if (pwField) pwField.value = '';
+          });
+          
+          await idField.click({ clickCount: 3 }); // 전체 선택
+          await idField.press('Backspace'); // 내용 삭제
           await idField.type(credentials.username);
+          console.log(`아이디 입력 완료: ${credentials.username}`);
+          
+          await pwField.click({ clickCount: 3 }); // 전체 선택
+          await pwField.press('Backspace'); // 내용 삭제
           await pwField.type(credentials.password);
+          console.log(`비밀번호 입력 완료: ${'*'.repeat(credentials.password.length)}`);
+          
+          const fieldValues = await this.page.evaluate(() => {
+            const idField = document.querySelector('input[name="m_id"]') || 
+                           document.querySelector('input[type="text"][name*="id"]') || 
+                           document.querySelector('#login_id');
+                           
+            const pwField = document.querySelector('input[name="m_pwd"]') || 
+                           document.querySelector('input[type="password"]') || 
+                           document.querySelector('#login_pw');
+                           
+            return {
+              idValue: idField ? idField.value : '알 수 없음',
+              pwValue: pwField ? (pwField.value ? '입력됨' : '비어 있음') : '알 수 없음'
+            };
+          });
+          
+          console.log('필드 입력값 확인:');
+          console.log(`- 아이디 필드: ${fieldValues.idValue}`);
+          console.log(`- 비밀번호 필드: ${fieldValues.pwValue}`);
           
           const loginButton = await this.page.$('input[type="submit"], button[type="submit"], .login_btn, input[value="로그인"]');
           
           if (loginButton) {
+            console.log('로그인 버튼 발견, 클릭 시도');
             await loginButton.click();
           } else {
             console.log('로그인 버튼을 찾지 못했습니다. 폼 제출을 시도합니다.');
@@ -202,12 +269,14 @@ class BrowserService {
             const formSubmitted = await this.page.evaluate(() => {
               const mainForm = document.querySelector('form[name="mainLoginForm"]');
               if (mainForm) {
+                console.log('mainLoginForm 폼 제출');
                 mainForm.submit();
                 return true;
               }
               
               const form = document.querySelector('form');
               if (form) {
+                console.log('일반 폼 제출');
                 form.submit();
                 return true;
               }
@@ -221,9 +290,12 @@ class BrowserService {
           }
           
           try {
+            console.log('페이지 이동 대기 중...');
             await this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: this.config.timeout });
+            console.log('페이지 이동 완료');
           } catch (error) {
             console.warn('네비게이션 타임아웃:', error.message);
+            console.log('타임아웃이 발생했지만 로그인은 성공했을 수 있습니다. 로그인 상태 확인 계속...');
           }
           
           const loggedIn = await this.page.evaluate(() => {
