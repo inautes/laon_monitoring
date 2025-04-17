@@ -102,6 +102,7 @@ class MonitoringApp {
       console.log('Browser initialized');
     } catch (error) {
       console.error('브라우저 초기화 오류:', error.message);
+      console.error('브라우저 초기화 재시도에도 실패했습니다. 네트워크 연결을 확인해주세요.');
       throw new Error('브라우저 초기화 실패');
     }
     

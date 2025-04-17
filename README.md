@@ -31,7 +31,13 @@ USE_FALLBACK_SCREENSHOT=true
 BROWSER_TIMEOUT=60000
 ```
 
-2. FTP 비활성화:
+2. 브라우저 초기화 재시도 설정:
+```
+BROWSER_RETRY_COUNT=3  # 재시도 횟수
+BROWSER_RETRY_DELAY=2000  # 재시도 지연 시간(ms)
+```
+
+3. FTP 비활성화:
 ```
 DISABLE_FTP=true
 ```

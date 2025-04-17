@@ -5,17 +5,21 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function retry(fn, retries = 3, delay = 1000, backoff = 2) {
+  const maxRetries = process.env.BROWSER_RETRY_COUNT ? parseInt(process.env.BROWSER_RETRY_COUNT, 10) : retries;
+  const initialDelay = process.env.BROWSER_RETRY_DELAY ? parseInt(process.env.BROWSER_RETRY_DELAY, 10) : delay;
+  
   let lastError = null;
   
-  for (let attempt = 0; attempt < retries; attempt++) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      console.log(`시도 ${attempt + 1}/${maxRetries} 시작...`);
       return await fn();
     } catch (error) {
-      console.log(`시도 ${attempt + 1}/${retries} 실패: ${error.message}`);
+      console.log(`시도 ${attempt + 1}/${maxRetries} 실패: ${error.message}`);
       lastError = error;
       
-      if (attempt < retries - 1) {
-        const waitTime = delay * Math.pow(backoff, attempt);
+      if (attempt < maxRetries - 1) {
+        const waitTime = initialDelay * Math.pow(backoff, attempt);
         console.log(`${waitTime}ms 후 재시도...`);
         await sleep(waitTime);
       }
@@ -38,23 +42,27 @@ class BrowserService {
   }
 
   async initialize() {
-    this.browser = await puppeteerExtra.launch({
-      headless: this.config.headless === true ? 'new' : false,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ],
-      defaultViewport: { width: 1366, height: 768 }
-    });
-    
-    this.page = await this.browser.newPage();
-    await this.page.setDefaultNavigationTimeout(this.config.timeout);
-    await this.page.setDefaultTimeout(this.config.timeout);
-    
-    return this;
+    return await retry(async () => {
+      console.log('브라우저 초기화 시도...');
+      this.browser = await puppeteerExtra.launch({
+        headless: this.config.headless === true ? 'new' : false,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu'
+        ],
+        defaultViewport: { width: 1366, height: 768 }
+      });
+      
+      this.page = await this.browser.newPage();
+      await this.page.setDefaultNavigationTimeout(this.config.timeout);
+      await this.page.setDefaultTimeout(this.config.timeout);
+      
+      console.log('브라우저 초기화 성공');
+      return this;
+    }, 3, 2000, 2);
   }
 
   async login(url, credentials) {
