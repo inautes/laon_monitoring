@@ -37,7 +37,17 @@ BROWSER_RETRY_COUNT=3  # 재시도 횟수
 BROWSER_RETRY_DELAY=2000  # 재시도 지연 시간(ms)
 ```
 
-3. FTP 비활성화:
+3. macOS에서 Chrome 경로 지정:
+```
+CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+```
+
+4. 브라우저 디버깅 로그 활성화:
+```
+BROWSER_DEBUG=true
+```
+
+5. FTP 비활성화:
 ```
 DISABLE_FTP=true
 ```

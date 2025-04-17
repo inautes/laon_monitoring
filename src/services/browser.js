@@ -1,8 +1,80 @@
 import puppeteer from 'puppeteer';
 import puppeteerExtra from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+function detectChromePath() {
+  if (process.env.CHROME_PATH) {
+    return process.env.CHROME_PATH;
+  }
+  
+  const platform = os.platform();
+  console.log(`운영체제 감지: ${platform}`);
+  
+  if (platform === 'darwin') {
+    const macOSChromePaths = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      '/Users/' + os.userInfo().username + '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    ];
+    
+    for (const chromePath of macOSChromePaths) {
+      try {
+        if (fs.existsSync(chromePath)) {
+          console.log(`macOS Chrome 경로 감지: ${chromePath}`);
+          return chromePath;
+        }
+      } catch (error) {
+        console.log(`경로 확인 오류: ${error.message}`);
+      }
+    }
+  }
+  
+  if (platform === 'win32') {
+    const windowsChromePaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe'
+    ];
+    
+    for (const chromePath of windowsChromePaths) {
+      try {
+        if (fs.existsSync(chromePath)) {
+          console.log(`Windows Chrome 경로 감지: ${chromePath}`);
+          return chromePath;
+        }
+      } catch (error) {
+        console.log(`경로 확인 오류: ${error.message}`);
+      }
+    }
+  }
+  
+  if (platform === 'linux') {
+    const linuxChromePaths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium'
+    ];
+    
+    for (const chromePath of linuxChromePaths) {
+      try {
+        if (fs.existsSync(chromePath)) {
+          console.log(`Linux Chrome 경로 감지: ${chromePath}`);
+          return chromePath;
+        }
+      } catch (error) {
+        console.log(`경로 확인 오류: ${error.message}`);
+      }
+    }
+  }
+  
+  console.log('Chrome 경로를 감지하지 못했습니다. 내장 Chromium을 사용합니다.');
+  return null;
+}
 
 async function retry(fn, retries = 3, delay = 1000, backoff = 2) {
   const maxRetries = process.env.BROWSER_RETRY_COUNT ? parseInt(process.env.BROWSER_RETRY_COUNT, 10) : retries;
@@ -43,25 +115,54 @@ class BrowserService {
 
   async initialize() {
     return await retry(async () => {
-      console.log('브라우저 초기화 시도...');
-      this.browser = await puppeteerExtra.launch({
-        headless: this.config.headless === true ? 'new' : false,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu'
-        ],
-        defaultViewport: { width: 1366, height: 768 }
-      });
-      
-      this.page = await this.browser.newPage();
-      await this.page.setDefaultNavigationTimeout(this.config.timeout);
-      await this.page.setDefaultTimeout(this.config.timeout);
-      
-      console.log('브라우저 초기화 성공');
-      return this;
+      try {
+        console.log('브라우저 초기화 시도...');
+        
+        const launchOptions = {
+          headless: this.config.headless === true ? 'new' : false,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu'
+          ],
+          defaultViewport: { width: 1366, height: 768 },
+          dumpio: process.env.BROWSER_DEBUG === 'true' // 브라우저 내부 로그 출력 활성화 (디버깅용)
+        };
+        
+        const chromePath = detectChromePath();
+        if (chromePath) {
+          console.log(`Chrome 경로 사용: ${chromePath}`);
+          launchOptions.executablePath = chromePath;
+        }
+        
+        this.browser = await puppeteerExtra.launch(launchOptions);
+        
+        if (!this.browser) {
+          throw new Error('브라우저 실행 실패: browser 인스턴스가 null입니다.');
+        }
+        
+        this.page = await this.browser.newPage();
+        await this.page.setDefaultNavigationTimeout(this.config.timeout);
+        await this.page.setDefaultTimeout(this.config.timeout);
+        
+        console.log('브라우저 초기화 성공');
+        return this;
+      } catch (error) {
+        console.error('브라우저 초기화 중 오류 발생:', error);
+        
+        if (this.browser) {
+          try {
+            await this.browser.close();
+          } catch (closeError) {
+            console.error('브라우저 종료 중 오류:', closeError.message);
+          }
+          this.browser = null;
+        }
+        
+        throw error;
+      }
     }, 3, 2000, 2);
   }
 
