@@ -112,18 +112,27 @@ class DatabaseService {
 
   saveOSPInfo(ospInfo) {
     try {
+      const safeOspInfo = {
+        siteId: ospInfo.siteId || 'default',
+        siteName: ospInfo.siteName || 'Default Site',
+        siteType: ospInfo.siteType || 'SITE0010',
+        siteEqu: ospInfo.siteEqu || 0,
+        loginId: ospInfo.loginId || 'anonymous',
+        loginPw: ospInfo.loginPw || ''
+      };
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO osp (site_id, site_name, site_type, site_equ, login_id, login_pw)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
       
       stmt.bind([
-        ospInfo.siteId,
-        ospInfo.siteName,
-        ospInfo.siteType,
-        ospInfo.siteEqu,
-        ospInfo.loginId,
-        ospInfo.loginPw
+        safeOspInfo.siteId,
+        safeOspInfo.siteName,
+        safeOspInfo.siteType,
+        safeOspInfo.siteEqu,
+        safeOspInfo.loginId,
+        safeOspInfo.loginPw
       ]);
       
       stmt.step();
@@ -140,6 +149,19 @@ class DatabaseService {
 
   saveContentInfo(contentInfo) {
     try {
+      const safeContentInfo = {
+        crawlId: contentInfo.crawlId || md5(Date.now().toString()),
+        siteId: contentInfo.siteId || 'default',
+        contentId: contentInfo.contentId || 'unknown',
+        title: contentInfo.title || 'No Title',
+        genre: contentInfo.genre || 'unknown',
+        fileCount: contentInfo.fileCount || 0,
+        fileSize: contentInfo.fileSize || '0',
+        uploaderId: contentInfo.uploaderId || 'anonymous',
+        collectionTime: contentInfo.collectionTime || new Date().toISOString(),
+        detailUrl: contentInfo.detailUrl || ''
+      };
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO content (
           crawl_id, site_id, content_id, title, genre, file_count, 
@@ -149,16 +171,16 @@ class DatabaseService {
       `);
       
       stmt.bind([
-        contentInfo.crawlId,
-        contentInfo.siteId,
-        contentInfo.contentId,
-        contentInfo.title,
-        contentInfo.genre,
-        contentInfo.fileCount,
-        contentInfo.fileSize,
-        contentInfo.uploaderId,
-        contentInfo.collectionTime,
-        contentInfo.detailUrl
+        safeContentInfo.crawlId,
+        safeContentInfo.siteId,
+        safeContentInfo.contentId,
+        safeContentInfo.title,
+        safeContentInfo.genre,
+        safeContentInfo.fileCount,
+        safeContentInfo.fileSize,
+        safeContentInfo.uploaderId,
+        safeContentInfo.collectionTime,
+        safeContentInfo.detailUrl
       ]);
       
       stmt.step();
@@ -175,6 +197,16 @@ class DatabaseService {
 
   saveContentDetailInfo(detailInfo) {
     try {
+      const safeDetailInfo = {
+        crawlId: detailInfo.crawlId || md5(Date.now().toString()),
+        collectionTime: detailInfo.collectionTime || new Date().toISOString(),
+        price: detailInfo.price || '0',
+        priceUnit: detailInfo.priceUnit || 'KRW',
+        partnershipStatus: detailInfo.partnershipStatus || 'unknown',
+        captureFilename: detailInfo.captureFilename || '',
+        status: detailInfo.status || 'captured'
+      };
+      
       const stmt = this.db.prepare(`
         INSERT OR REPLACE INTO content_detail (
           crawl_id, collection_time, price, price_unit, 
@@ -184,13 +216,13 @@ class DatabaseService {
       `);
       
       stmt.bind([
-        detailInfo.crawlId,
-        detailInfo.collectionTime,
-        detailInfo.price,
-        detailInfo.priceUnit,
-        detailInfo.partnershipStatus,
-        detailInfo.captureFilename,
-        detailInfo.status
+        safeDetailInfo.crawlId,
+        safeDetailInfo.collectionTime,
+        safeDetailInfo.price,
+        safeDetailInfo.priceUnit,
+        safeDetailInfo.partnershipStatus,
+        safeDetailInfo.captureFilename,
+        safeDetailInfo.status
       ]);
       
       stmt.step();
@@ -207,15 +239,22 @@ class DatabaseService {
 
   saveFileList(crawlId, fileList) {
     try {
+      const safeCrawlId = crawlId || md5(Date.now().toString());
+      const safeFileList = Array.isArray(fileList) ? fileList : [];
+      
       this.db.exec('BEGIN TRANSACTION;');
       
-      for (const item of fileList) {
+      for (const item of safeFileList) {
         const stmt = this.db.prepare(`
           INSERT INTO file_list (crawl_id, filename, file_size)
           VALUES (?, ?, ?)
         `);
         
-        stmt.bind([crawlId, item.filename, item.fileSize]);
+        stmt.bind([
+          safeCrawlId, 
+          item.filename || 'unknown', 
+          item.fileSize || '0'
+        ]);
         stmt.step();
         stmt.free();
       }
