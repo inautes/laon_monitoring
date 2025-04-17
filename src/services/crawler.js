@@ -55,7 +55,14 @@ class CrawlerService {
         const contentList = await this.browserService.getContentList(null, page);
         console.log(`Found ${contentList.length} content items on page ${page}`);
         
-        for (const content of contentList) {
+        if (contentList.length === 0) {
+          console.log(`No content items found on page ${page}, skipping to next page`);
+          continue;
+        }
+        
+        const contentWithSelectors = await this.addSelectorsToContent(contentList);
+        
+        for (const content of contentWithSelectors) {
           const processedContent = await this.processContent(content, category);
           if (processedContent) {
             processedContents.push(processedContent);
@@ -63,6 +70,11 @@ class CrawlerService {
         }
         
         if (page < pages) {
+          const nextPageSuccess = await this.goToNextPage(page);
+          if (!nextPageSuccess) {
+            console.log(`No more pages available, ending pagination at page ${page}`);
+            break;
+          }
         }
       }
       
@@ -70,6 +82,135 @@ class CrawlerService {
     } catch (error) {
       console.error(`Error crawling category ${category}:`, error);
       return [];
+    }
+  }
+  
+  async addSelectorsToContent(contentList) {
+    try {
+      const selectors = await this.browserService.page.evaluate(() => {
+        const itemSelectors = [
+          '.content-item', '.list-item', '.board-item', 'tr.item', '.file-item',
+          '.list_table tr', '.board_list tr', '.file_list li', '.content_list li',
+          '.list-table tr', '.content-list-item', '.file-list-item'
+        ];
+        
+        let items = [];
+        
+        for (const selector of itemSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements && elements.length > 0) {
+            items = Array.from(elements);
+            break;
+          }
+        }
+        
+        return items.map((item, index) => {
+          const clickableElements = item.querySelectorAll('a, .title, .subject, .name, .filename');
+          let clickableSelector = null;
+          
+          if (clickableElements && clickableElements.length > 0) {
+            const element = clickableElements[0];
+            const classes = Array.from(element.classList).join('.');
+            
+            if (classes) {
+              clickableSelector = `${element.tagName.toLowerCase()}.${classes}`;
+            } else {
+              const parentSelector = item.tagName.toLowerCase();
+              clickableSelector = `${parentSelector}:nth-child(${index + 1}) ${element.tagName.toLowerCase()}`;
+            }
+          } else {
+            const classes = Array.from(item.classList).join('.');
+            if (classes) {
+              clickableSelector = `${item.tagName.toLowerCase()}.${classes}`;
+            } else {
+              clickableSelector = `${item.tagName.toLowerCase()}:nth-child(${index + 1})`;
+            }
+          }
+          
+          return {
+            selector: clickableSelector,
+            index: index
+          };
+        });
+      });
+      
+      return contentList.map((content, index) => {
+        if (index < selectors.length) {
+          return {
+            ...content,
+            selector: selectors[index].selector,
+            index: selectors[index].index
+          };
+        }
+        return content;
+      });
+    } catch (error) {
+      console.error(`Error adding selectors to content: ${error.message}`);
+      return contentList; // 오류 발생 시 원래 목록 반환
+    }
+  }
+  
+  async goToNextPage(currentPage) {
+    try {
+      console.log(`Attempting to navigate to page ${currentPage + 1}`);
+      
+      const nextPageClicked = await this.browserService.page.evaluate((page) => {
+        const nextPageSelectors = [
+          `.pagination a[href*="page=${page + 1}"]`,
+          `.pagination a[href*="page_no=${page + 1}"]`,
+          `.pagination a[href*="pageNo=${page + 1}"]`,
+          `.pagination a[href*="pageIndex=${page + 1}"]`,
+          `.pagination .next`,
+          `.pagination .next-page`,
+          `.paging .next`,
+          `.paging a[href*="page=${page + 1}"]`,
+          `a.next`,
+          `a[aria-label="Next page"]`,
+          `.board_paging a:nth-child(${page + 1})`,
+          `.board_paging a:contains("${page + 1}")`,
+          `.paging a:contains("${page + 1}")`
+        ];
+        
+        for (const selector of nextPageSelectors) {
+          const nextButton = document.querySelector(selector);
+          if (nextButton) {
+            nextButton.click();
+            return true;
+          }
+        }
+        
+        const pageLinks = document.querySelectorAll('.pagination a, .paging a, .board_paging a');
+        for (const link of pageLinks) {
+          if (link.textContent.trim() === String(page + 1)) {
+            link.click();
+            return true;
+          }
+        }
+        
+        return false;
+      }, currentPage);
+      
+      if (nextPageClicked) {
+        await this.browserService.page.waitForNavigation({ 
+          waitUntil: 'networkidle2',
+          timeout: this.browserService.config.timeout 
+        }).catch(() => {
+          console.log('Navigation timeout, but continuing anyway');
+        });
+        
+        await this.browserService.page.waitForSelector('.list_table, .board_list, .file_list, .content_list', { 
+          timeout: this.browserService.config.timeout 
+        }).catch(() => {
+          console.log('Content list selector timeout, but continuing anyway');
+        });
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error navigating to next page: ${error.message}`);
+      return false;
     }
   }
 
@@ -93,7 +234,7 @@ class CrawlerService {
       const listingScreenshotPath = path.join(this.outputDir, `listing_${crawlId}.png`);
       await this.browserService.captureScreenshot('.list_table', listingScreenshotPath);
       
-      const detailInfo = await this.browserService.getContentDetail(content.detailUrl);
+      const detailInfo = await this.browserService.getContentDetail(content);
       if (!detailInfo) {
         console.error(`Failed to get detail information for content: ${content.title}`);
         return null;
