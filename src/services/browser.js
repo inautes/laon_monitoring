@@ -238,23 +238,26 @@ class BrowserService {
             await pwField.click({ clickCount: 3 }); // 전체 선택
             await pwField.press('Backspace'); // 내용 삭제
             
-            const hasSpecialChars = /[!@#$%^&*(),.?":{}|<>]/.test(credentials.password);
-            
-            if (hasSpecialChars) {
-              console.log('비밀번호에 특수 문자가 포함되어 있어 JavaScript로 직접 설정합니다.');
-              await this.page.evaluate((password) => {
-                const pwField = document.querySelector('input[name="m_pwd"]') ||
-                               document.querySelector('input[type="password"]') ||
-                               document.querySelector('#login_pw') ||
-                               document.querySelector('#user_pw') ||
-                               document.querySelector('input[name="user_pw"]');
-                if (pwField) {
-                  pwField.value = password;
-                }
-              }, credentials.password);
-            } else {
-              await pwField.type(credentials.password);
-            }
+            console.log('비밀번호를 JavaScript로 직접 설정합니다.');
+            await this.page.evaluate((password) => {
+              const pwField = document.querySelector('input[name="m_pwd"]');
+              if (pwField) {
+                console.log('fileis.com 비밀번호 필드(m_pwd) 발견');
+                pwField.value = password;
+                return;
+              }
+              
+              const altPwField = document.querySelector('input[type="password"]') ||
+                                document.querySelector('#login_pw') ||
+                                document.querySelector('#user_pw') ||
+                                document.querySelector('input[name="user_pw"]');
+              if (altPwField) {
+                console.log('대체 비밀번호 필드 발견');
+                altPwField.value = password;
+              } else {
+                console.error('비밀번호 필드를 찾을 수 없음');
+              }
+            }, credentials.password);
             
             console.log(`비밀번호 입력 완료: ${'*'.repeat(credentials.password.length)}`);
             
@@ -269,13 +272,29 @@ class BrowserService {
             
             if (!pwValue) {
               console.warn('비밀번호가 입력되지 않았을 수 있습니다. 대체 방법 시도...');
-              await pwField.click({ clickCount: 3 });
-              await pwField.press('Backspace');
-              for (const char of credentials.password) {
-                await pwField.press(char);
-                await this.page.waitForTimeout(50); // 각 문자 입력 사이에 약간의 지연
+              
+              const retryJsResult = await this.page.evaluate((password) => {
+                const inputs = document.querySelectorAll('input');
+                for (const input of inputs) {
+                  if (input.type === 'password' || input.name.includes('pwd') || input.name.includes('pass')) {
+                    console.log(`비밀번호 필드 발견: ${input.name || input.id || 'unnamed'}`);
+                    input.value = password;
+                    return true;
+                  }
+                }
+                return false;
+              }, credentials.password);
+              
+              if (!retryJsResult) {
+                console.log('문자별 입력 방식으로 비밀번호 입력 시도...');
+                await pwField.click({ clickCount: 3 });
+                await pwField.press('Backspace');
+                for (const char of credentials.password) {
+                  await pwField.press(char);
+                  await this.page.waitForTimeout(50); // 각 문자 입력 사이에 약간의 지연
+                }
+                console.log('문자별 입력 방식으로 비밀번호 입력 완료');
               }
-              console.log('문자별 입력 방식으로 비밀번호 입력 완료');
             }
           } catch (error) {
             console.error('비밀번호 입력 중 오류:', error.message);
@@ -339,44 +358,182 @@ class BrowserService {
 
             console.log('로그인 후 팝업 확인 중...');
             try {
+              console.log('팝업이 나타날 때까지 대기 중...');
+              await this.page.waitForTimeout(2000);
+              
               const popupSelectors = [
-                '.popup_close', '.close_btn', '.btn_close',
-                'button:contains("확인")', 'a:contains("확인")',
-                'button.confirm', 'input[type="button"][value="확인"]',
-                '.layer_close', '.modal_close'
+                '.popup_close', '.close_btn', '.btn_close', '.layer_close', '.modal_close',
+                '.close', '.btn-close', '.popup-close', '.layer-close', '.modal-close',
+                '.closeBtn', '.close-btn', '.popup-btn-close', '.layer-btn-close',
+                '[class*="close"]', '[class*="Close"]', '[id*="close"]', '[id*="Close"]',
+                
+                'button.confirm', 'input[type="button"][value="확인"]', '.btn_confirm',
+                '.confirm-btn', '.btn-confirm', '.ok-btn', '.btn-ok',
+                '[class*="confirm"]', '[class*="Confirm"]', '[id*="confirm"]', '[id*="Confirm"]',
+                
+                'button', 'input[type="button"]', 'a.btn', '.btn', '[role="button"]'
               ];
 
+              const popupContainerSelectors = [
+                '.popup', '.modal', '.layer', '.alert', '.dialog',
+                '.popup_container', '.modal_container', '.layer_container',
+                '.popup-container', '.modal-container', '.layer-container',
+                '[class*="popup"]', '[class*="modal"]', '[class*="layer"]',
+                '[class*="Popup"]', '[class*="Modal"]', '[class*="Layer"]',
+                '[role="dialog"]', '[aria-modal="true"]'
+              ];
+              
+              let popupContainers = [];
+              for (const selector of popupContainerSelectors) {
+                const containers = await this.page.$$(selector);
+                if (containers.length > 0) {
+                  console.log(`팝업 컨테이너 발견: ${selector}, ${containers.length}개`);
+                  popupContainers = popupContainers.concat(containers);
+                }
+              }
+              
+              if (popupContainers.length > 0) {
+                for (const container of popupContainers) {
+                  const buttonTexts = await this.page.evaluate(container => {
+                    const buttons = container.querySelectorAll('button, input[type="button"], a.btn, .btn');
+                    return Array.from(buttons).map(btn => ({
+                      text: btn.textContent?.trim() || btn.value || '',
+                      isClose: (btn.textContent?.includes('닫기') || 
+                               btn.textContent?.includes('확인') || 
+                               btn.textContent?.includes('Close') || 
+                               btn.textContent?.includes('OK') ||
+                               btn.className.includes('close') ||
+                               btn.className.includes('confirm'))
+                    }));
+                  }, container);
+                  
+                  console.log(`팝업 내 버튼 텍스트: ${JSON.stringify(buttonTexts)}`);
+                  
+                  const closeButtons = await this.page.evaluate(container => {
+                    const buttons = container.querySelectorAll('button, input[type="button"], a.btn, .btn');
+                    const closeButtons = Array.from(buttons).filter(btn => 
+                      btn.textContent?.includes('닫기') || 
+                      btn.textContent?.includes('확인') || 
+                      btn.textContent?.includes('Close') || 
+                      btn.textContent?.includes('OK') ||
+                      btn.className.includes('close') ||
+                      btn.className.includes('confirm')
+                    );
+                    
+                    if (closeButtons.length > 0) {
+                      closeButtons.forEach(btn => {
+                        console.log(`팝업 버튼 클릭: ${btn.textContent || btn.className}`);
+                        btn.click();
+                      });
+                      return true;
+                    }
+                    return false;
+                  }, container);
+                  
+                  if (closeButtons) {
+                    console.log('팝업 내 닫기/확인 버튼 클릭됨');
+                    await this.page.waitForTimeout(500);
+                  }
+                }
+              }
+              
               for (const selector of popupSelectors) {
                 const popupCloseButtons = await this.page.$$(selector);
                 if (popupCloseButtons.length > 0) {
-                  console.log(`팝업 닫기 버튼 발견: ${selector}`);
+                  console.log(`팝업 버튼 발견: ${selector}, ${popupCloseButtons.length}개`);
+                  
                   for (const button of popupCloseButtons) {
+                    const buttonText = await this.page.evaluate(el => el.textContent?.trim() || el.value || '', button);
+                    const buttonClass = await this.page.evaluate(el => el.className || '', button);
+                    
+                    const isCloseButton = buttonText.includes('닫기') || 
+                                         buttonText.includes('확인') || 
+                                         buttonText.includes('Close') || 
+                                         buttonText.includes('OK') ||
+                                         buttonClass.includes('close') ||
+                                         buttonClass.includes('confirm');
+                    
+                    if (selector.includes('button') || selector.includes('input') || selector.includes('a.btn') || selector.includes('.btn')) {
+                      if (!isCloseButton) {
+                        console.log(`일반 버튼 무시: ${buttonText || buttonClass}`);
+                        continue;
+                      }
+                    }
+                    
+                    console.log(`팝업 버튼 클릭: ${buttonText || buttonClass}`);
                     await button.click().catch(e => console.log(`팝업 버튼 클릭 실패: ${e.message}`));
-                    console.log('팝업 닫기 버튼 클릭됨');
                     await this.page.waitForTimeout(500); // 팝업 닫힘 대기
                   }
                 }
               }
-
+              
               await this.page.evaluate(() => {
                 const closePopups = () => {
-                  const popupButtons = document.querySelectorAll('button, input[type="button"], a.btn');
+                  const popupContainers = document.querySelectorAll(
+                    '.popup, .modal, .layer, .alert, .dialog, ' +
+                    '.popup_container, .modal_container, .layer_container, ' +
+                    '[class*="popup"], [class*="modal"], [class*="layer"], ' +
+                    '[role="dialog"], [aria-modal="true"]'
+                  );
+                  
+                  if (popupContainers.length > 0) {
+                    console.log(`자바스크립트로 팝업 컨테이너 ${popupContainers.length}개 발견`);
+                    
+                    popupContainers.forEach(container => {
+                      const closeButtons = container.querySelectorAll(
+                        '.close, .close_btn, .btn_close, .popup_close, .layer_close, ' +
+                        '.confirm, .btn_confirm, .confirm_btn, ' +
+                        'button, input[type="button"], a.btn, .btn'
+                      );
+                      
+                      if (closeButtons.length > 0) {
+                        closeButtons.forEach(button => {
+                          const buttonText = button.textContent?.trim() || button.value || '';
+                          const buttonClass = button.className || '';
+                          
+                          if (buttonText.includes('닫기') || 
+                              buttonText.includes('확인') || 
+                              buttonText.includes('Close') || 
+                              buttonText.includes('OK') ||
+                              buttonClass.includes('close') ||
+                              buttonClass.includes('confirm')) {
+                            console.log(`자바스크립트로 팝업 버튼 클릭: ${buttonText || buttonClass}`);
+                            button.click();
+                          }
+                        });
+                      } else {
+                        console.log('팝업 버튼을 찾을 수 없어 ESC 키 이벤트 발생');
+                        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+                      }
+                    });
+                  }
+                  
+                  const popupButtons = document.querySelectorAll('button, input[type="button"], a.btn, .btn');
                   for (const button of popupButtons) {
-                    if (button.textContent &&
-                        (button.textContent.includes('확인') ||
-                         button.textContent.includes('닫기') ||
-                         button.textContent.includes('Close'))) {
-                      console.log('팝업 확인 버튼 클릭:', button.textContent);
+                    const buttonText = button.textContent?.trim() || button.value || '';
+                    const buttonClass = button.className || '';
+                    
+                    if (buttonText.includes('닫기') || 
+                        buttonText.includes('확인') || 
+                        buttonText.includes('Close') || 
+                        buttonText.includes('OK') ||
+                        buttonClass.includes('close') ||
+                        buttonClass.includes('confirm')) {
+                      console.log(`자바스크립트로 개별 버튼 클릭: ${buttonText || buttonClass}`);
                       button.click();
                     }
                   }
                 };
-
+                
                 closePopups();
-
                 setTimeout(closePopups, 1000);
+                setTimeout(closePopups, 2000);
               });
-
+              
+              await this.page.keyboard.press('Escape');
+              console.log('ESC 키로 추가 팝업 닫기 시도');
+              
+              await this.page.waitForTimeout(1000);
               console.log('팝업 처리 완료');
             } catch (popupError) {
               console.log('팝업 처리 중 오류 (무시됨):', popupError.message);
@@ -385,39 +542,173 @@ class BrowserService {
             console.warn('네비게이션 타임아웃:', error.message);
             console.log('타임아웃이 발생했지만 로그인은 성공했을 수 있습니다. 로그인 상태 확인 계속...');
           }
-
+          
+          let alternativeLoginAttempted = false;
+          
+          try {
+            const currentUrl = await this.page.url();
+            console.log('현재 URL:', currentUrl);
+            
+            const quickLoginCheck = await this.page.evaluate(() => {
+              return {
+                hasLogoutBtn: !!document.querySelector('.logout_btn'),
+                hasUserInfo: !!document.querySelector('.user-info, .user_info'),
+                hasLoginUserInfoWrap: !!document.querySelector('.login-user-info-wrap'),
+                bodyText: document.body.innerText.includes('로그아웃') || 
+                         document.body.innerText.includes('마이페이지') || 
+                         document.body.innerText.includes('회원정보')
+              };
+            });
+            
+            console.log('빠른 로그인 상태 확인:', JSON.stringify(quickLoginCheck));
+            
+            if (!quickLoginCheck.hasLogoutBtn && 
+                !quickLoginCheck.hasUserInfo && 
+                !quickLoginCheck.hasLoginUserInfoWrap && 
+                !quickLoginCheck.bodyText) {
+              
+              console.log('로그인이 되지 않은 것으로 보임, 대체 로그인 방식 시도');
+              alternativeLoginAttempted = true;
+              
+              const response = await this.page.evaluate(async (username, password) => {
+                try {
+                  console.log('fetch API를 사용한 로그인 시도');
+                  
+                  const formData = new FormData();
+                  formData.append('m_id', username);
+                  formData.append('m_pwd', password);
+                  formData.append('caller', 'main');
+                  formData.append('location', 'main');
+                  
+                  const response = await fetch('/member/loginCheck.php', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin',
+                    redirect: 'follow'
+                  });
+                  
+                  if (!response.ok) {
+                    console.error('로그인 요청 실패:', response.status, response.statusText);
+                    return { success: false, status: response.status, message: response.statusText };
+                  }
+                  
+                  const text = await response.text();
+                  console.log('로그인 응답:', text.substring(0, 100) + '...');
+                  
+                  return { 
+                    success: true, 
+                    redirected: response.redirected,
+                    url: response.url,
+                    text: text.substring(0, 100)
+                  };
+                } catch (e) {
+                  console.error('fetch 로그인 실패:', e.message);
+                  return { success: false, error: e.message };
+                }
+              }, credentials.username, credentials.password);
+              
+              console.log('fetch 로그인 결과:', JSON.stringify(response));
+              
+              if (response && response.success) {
+                console.log('대체 로그인 방식 성공');
+                await this.page.waitForTimeout(2000); // 로그인 처리 대기
+                
+                await this.page.reload({ waitUntil: 'networkidle2' });
+                console.log('페이지 새로고침 완료');
+              } else {
+                console.warn('대체 로그인 방식 실패:', response ? response.error || response.message : '알 수 없는 오류');
+                
+                try {
+                  console.log('직접 URL 이동을 통한 로그인 시도');
+                  await this.page.goto('https://fileis.com/member/loginCheck.php', { 
+                    waitUntil: 'networkidle2',
+                    timeout: this.config.timeout / 2
+                  });
+                  console.log('로그인 처리 페이지로 이동 완료');
+                  
+                  await this.page.goto('https://fileis.com/', { 
+                    waitUntil: 'networkidle2',
+                    timeout: this.config.timeout / 2
+                  });
+                  console.log('메인 페이지로 복귀 완료');
+                } catch (directNavError) {
+                  console.warn(`직접 URL 이동 실패: ${directNavError.message}`);
+                }
+              }
+            }
+          } catch (altLoginError) {
+            console.warn(`대체 로그인 방식 오류: ${altLoginError.message}`);
+          }
+          
           const loggedIn = await this.page.evaluate(() => {
-            if (document.querySelector('.logout_btn, .user-info, .user_info')) {
+            if (document.querySelector('.logout_btn') || 
+                document.querySelector('.user-info') || 
+                document.querySelector('.user_info')) {
               console.log('로그아웃 버튼 또는 사용자 정보 요소 발견: 로그인 성공 확인됨');
               return true;
             }
 
-            if (document.querySelector('.login-user-info-wrap')) {
+            const loginUserInfoWrap = document.querySelector('.login-user-info-wrap');
+            if (loginUserInfoWrap) {
               console.log('login-user-info-wrap 요소 발견: 로그인 성공 확인됨');
+              
+              const pointElement = loginUserInfoWrap.querySelector('li.point b');
+              const bonusElement = loginUserInfoWrap.querySelector('li.bonus b');
+              
+              if (pointElement) {
+                console.log(`포인트 요소 발견: ${pointElement.textContent.trim()}`);
+              }
+              
+              if (bonusElement) {
+                console.log(`보너스 요소 발견: ${bonusElement.textContent.trim()}`);
+              }
+              
               return true;
             }
 
             const pointElement = document.querySelector('li.point b');
             const bonusElement = document.querySelector('li.bonus b');
 
-            if ((pointElement && pointElement.textContent.includes('포인트')) ||
-                (bonusElement && bonusElement.textContent.includes('보너스'))) {
-              console.log('포인트/보너스 요소 발견: 로그인 성공 확인됨');
+            if (pointElement || bonusElement) {
+              if (pointElement) {
+                console.log(`포인트 요소 발견: ${pointElement.textContent.trim()}`);
+              }
+              
+              if (bonusElement) {
+                console.log(`보너스 요소 발견: ${bonusElement.textContent.trim()}`);
+              }
+              
               return true;
             }
 
             const links = Array.from(document.querySelectorAll('a'));
             for (const link of links) {
-              if (link.textContent && link.textContent.includes('로그아웃')) {
-                console.log('로그아웃 링크 발견: 로그인 성공 확인됨');
+              if (link.textContent && 
+                  (link.textContent.includes('로그아웃') || 
+                   link.textContent.includes('Logout') || 
+                   link.textContent.includes('Log out'))) {
+                console.log(`로그아웃 링크 발견: ${link.textContent.trim()}`);
                 return true;
               }
             }
 
-            const userElements = Array.from(document.querySelectorAll('.user, .username, .user-name'));
+            const userElements = Array.from(document.querySelectorAll('.user, .username, .user-name, .account-info, .member-info'));
             if (userElements.length > 0) {
-              console.log('사용자 요소 발견: 로그인 성공 확인됨');
+              userElements.forEach(element => {
+                console.log(`사용자 요소 발견: ${element.textContent.trim()}`);
+              });
               return true;
+            }
+
+            const mypageLinks = Array.from(document.querySelectorAll('a'));
+            for (const link of mypageLinks) {
+              if (link.textContent && 
+                  (link.textContent.includes('마이페이지') || 
+                   link.textContent.includes('My Page') || 
+                   link.textContent.includes('내 정보'))) {
+                console.log(`마이페이지 링크 발견: ${link.textContent.trim()}`);
+                return true;
+              }
             }
 
             console.log('로그인 상태 요소를 찾을 수 없음: 로그인 실패로 간주');
@@ -618,27 +909,121 @@ class BrowserService {
           throw new Error('컨텐츠 항목에 클릭할 요소나 URL이 없음');
         }
 
+        console.log('레이어 팝업이 나타날 때까지 대기 중...');
+        await this.page.waitForTimeout(1000);
+        
         const popupSelectors = [
           '.layer_popup', '.modal-content', '.popup-detail', '.detail-layer',
-          '.content-view-popup', '.content_detail_popup', '[role="dialog"]'
+          '.content-view-popup', '.content_detail_popup', '[role="dialog"]',
+          
+          '.layer-popup', '.view_layer', '.content_view', '.detail_view',
+          '.file_detail_layer', '#detailPopup', '.board_view_popup',
+          '.layer_detail', '.modal_detail', '.popup_detail', '.detail_popup',
+          '.view_popup', '.content_layer', '.file_view', '.file_layer',
+          
+          '[class*="layer"][class*="popup"]', '[class*="modal"][class*="content"]',
+          '[class*="detail"][class*="view"]', '[class*="popup"][class*="content"]',
+          '[class*="layer"][class*="detail"]', '[class*="modal"][class*="detail"]',
+          '[aria-modal="true"]', '[role="dialog"]', '[role="alertdialog"]',
+          
+          '.detail-layer-content', '.file-detail-popup', '.view-detail-layer',
+          '.content-detail-view', '.file-info-layer', '.file-detail-view'
         ];
         
         let popupSelector = null;
+        let popupElement = null;
+        
         for (const selector of popupSelectors) {
           try {
             const exists = await this.page.$(selector);
             if (exists) {
               popupSelector = selector;
-              await this.page.waitForSelector(selector, { visible: true, timeout: this.config.timeout });
+              popupElement = exists;
+              
+              await this.page.waitForSelector(selector, { 
+                visible: true, 
+                timeout: this.config.timeout / 2 
+              });
+              
               console.log(`팝업 요소 발견: ${selector}`);
+              
+              try {
+                const innerSelectors = [
+                  `${selector} .title`, `${selector} .content`, 
+                  `${selector} .file-info`, `${selector} .detail-info`,
+                  `${selector} h3`, `${selector} .file-list`
+                ];
+                
+                for (const innerSelector of innerSelectors) {
+                  const innerElement = await this.page.$(innerSelector);
+                  if (innerElement) {
+                    await this.page.waitForSelector(innerSelector, { 
+                      visible: true, 
+                      timeout: 2000 
+                    });
+                    console.log(`팝업 내부 요소 발견: ${innerSelector}`);
+                    break;
+                  }
+                }
+              } catch (innerError) {
+                console.log(`팝업 내부 요소 대기 중 오류: ${innerError.message}`);
+              }
+              
               break;
             }
           } catch (error) {
             console.log(`선택자 '${selector}' 확인 중 오류: ${error.message}`);
           }
         }
-
+        
         if (!popupSelector) {
+          console.warn('팝업 요소를 찾을 수 없습니다. 대체 방법으로 팝업 감지를 시도합니다.');
+          
+          try {
+            const beforeElements = await this.page.evaluate(() => {
+              return Array.from(document.querySelectorAll('div, section, article')).length;
+            });
+            
+            await this.page.waitForTimeout(1000);
+            
+            const afterElements = await this.page.evaluate(() => {
+              return Array.from(document.querySelectorAll('div, section, article')).length;
+            });
+            
+            if (afterElements > beforeElements) {
+              console.log(`새로운 요소 감지됨: ${afterElements - beforeElements}개 요소 추가됨`);
+              
+              const highZIndexElement = await this.page.evaluate(() => {
+                let highestZ = 0;
+                let highestElement = null;
+                
+                const elements = document.querySelectorAll('div, section, article');
+                for (const el of elements) {
+                  const style = window.getComputedStyle(el);
+                  const zIndex = parseInt(style.zIndex) || 0;
+                  
+                  if (zIndex > highestZ && style.display !== 'none' && style.visibility !== 'hidden') {
+                    highestZ = zIndex;
+                    highestElement = el;
+                  }
+                }
+                
+                return highestElement ? {
+                  tagName: highestElement.tagName,
+                  className: highestElement.className,
+                  id: highestElement.id,
+                  zIndex: highestZ
+                } : null;
+              });
+              
+              if (highZIndexElement) {
+                console.log(`높은 z-index 요소 발견: ${JSON.stringify(highZIndexElement)}`);
+              }
+            }
+          } catch (error) {
+            console.warn(`새 요소 감지 중 오류: ${error.message}`);
+          }
+          
           console.warn('팝업 요소를 찾을 수 없습니다. 페이지 본문에서 정보 추출을 시도합니다.');
         }
 
@@ -723,26 +1108,141 @@ class BrowserService {
         try {
           const closeButtonSelectors = [
             '.popup-close', '.close-button', '.btn-close', '.modal-close',
-            '.layer_close', '.close', '[aria-label="Close"]', '.popup_close'
+            '.layer_close', '.close', '[aria-label="Close"]', '.popup_close',
+            
+            '.detail_close', '.view_close', '.file_close', 'a.close', 'button.close',
+            '.btn_close', '.layer-close', '.modal-close', '.popup-close',
+            '.closeBtn', '.close-btn', '.popup-btn-close', '.layer-btn-close',
+            
+            '[class*="close"]', '[class*="Close"]', '[id*="close"]', '[id*="Close"]',
+            'a[onclick*="close"]', 'button[onclick*="close"]', 'a[href*="close"]',
+            'button[data-dismiss]', 'a[data-dismiss]', '[role="button"][aria-label*="close"]',
+            
+            '.btn_confirm', '.confirm-btn', '.btn-confirm', '.ok-btn', '.btn-ok',
+            'button.confirm', 'input[type="button"][value="확인"]',
+            
+            '.detail-close', '.file-close', '.view-close', '.content-close',
+            '.detail-layer-close', '.file-detail-close', '.view-detail-close'
           ];
           
+          console.log('팝업 닫기 버튼 찾는 중...');
           let closed = false;
+          
           for (const selector of closeButtonSelectors) {
-            const closeButton = await this.page.$(selector);
-            if (closeButton) {
-              await closeButton.click();
-              console.log(`팝업 닫기 버튼 클릭: ${selector}`);
-              closed = true;
-              break;
+            try {
+              const closeButton = await this.page.$(selector);
+              if (closeButton) {
+                const isVisible = await this.page.evaluate(el => {
+                  const style = window.getComputedStyle(el);
+                  return style.display !== 'none' && 
+                         style.visibility !== 'hidden' && 
+                         style.opacity !== '0' &&
+                         el.offsetWidth > 0 &&
+                         el.offsetHeight > 0;
+                }, closeButton);
+                
+                if (isVisible) {
+                  console.log(`팝업 닫기 버튼 발견: ${selector}`);
+                  await closeButton.click().catch(e => console.log(`버튼 클릭 실패: ${e.message}`));
+                  console.log(`팝업 닫기 버튼 클릭됨: ${selector}`);
+                  closed = true;
+                  await this.page.waitForTimeout(500);
+                  break;
+                }
+              }
+            } catch (buttonError) {
+              console.log(`버튼 선택자 '${selector}' 확인 중 오류: ${buttonError.message}`);
             }
           }
           
           if (!closed) {
-            await this.page.keyboard.press('Escape');
+            console.log('텍스트 내용으로 닫기 버튼 찾는 중...');
+            
+            const buttonByText = await this.page.evaluate(() => {
+              const closeTexts = ['닫기', '확인', '확 인', 'Close', 'OK', '종료', 'X', '×'];
+              const buttons = Array.from(document.querySelectorAll('button, a, input[type="button"], [role="button"]'));
+              
+              for (const button of buttons) {
+                const buttonText = button.textContent?.trim() || button.value || '';
+                if (closeTexts.some(text => buttonText.includes(text))) {
+                  const style = window.getComputedStyle(button);
+                  if (style.display !== 'none' && 
+                      style.visibility !== 'hidden' && 
+                      style.opacity !== '0' &&
+                      button.offsetWidth > 0 &&
+                      button.offsetHeight > 0) {
+                    console.log(`텍스트로 닫기 버튼 발견: ${buttonText}`);
+                    button.click();
+                    return true;
+                  }
+                }
+              }
+              return false;
+            });
+            
+            if (buttonByText) {
+              console.log('텍스트 내용으로 닫기 버튼 클릭됨');
+              closed = true;
+              await this.page.waitForTimeout(500);
+            }
+          }
+          
+          if (!closed) {
+            console.log('위치 기반으로 닫기 버튼 찾는 중...');
+            
+            const positionBasedButton = await this.page.evaluate(() => {
+              const popupContainers = document.querySelectorAll(
+                '.layer_popup, .modal-content, .popup-detail, .detail-layer, ' +
+                '.content-view-popup, .content_detail_popup, [role="dialog"], ' +
+                '.layer-popup, .view_layer, .content_view, .detail_view, ' +
+                '.file_detail_layer, #detailPopup, .board_view_popup'
+              );
+              
+              if (popupContainers.length > 0) {
+                const container = popupContainers[0];
+                const rect = container.getBoundingClientRect();
+                
+                const topRightElements = Array.from(document.querySelectorAll('button, a, span, div, img'))
+                  .filter(el => {
+                    const elRect = el.getBoundingClientRect();
+                    return elRect.top < rect.top + 50 && // 상단 50px 이내
+                           elRect.right > rect.right - 50 && // 오른쪽 50px 이내
+                           elRect.width < 50 && elRect.height < 50 && // 작은 요소 (버튼)
+                           window.getComputedStyle(el).display !== 'none' &&
+                           window.getComputedStyle(el).visibility !== 'hidden';
+                  });
+                
+                if (topRightElements.length > 0) {
+                  console.log(`위치 기반으로 닫기 버튼 발견: ${topRightElements[0].tagName}`);
+                  topRightElements[0].click();
+                  return true;
+                }
+              }
+              return false;
+            });
+            
+            if (positionBasedButton) {
+              console.log('위치 기반으로 닫기 버튼 클릭됨');
+              closed = true;
+              await this.page.waitForTimeout(500);
+            }
+          }
+          
+          if (!closed) {
             console.log('ESC 키로 팝업 닫기 시도');
+            await this.page.keyboard.press('Escape');
+            await this.page.waitForTimeout(500);
+            
+            await this.page.evaluate(() => {
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+              document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', keyCode: 27 }));
+            });
+            
+            console.log('ESC 키 이벤트 발생 완료');
           }
           
           await this.page.waitForTimeout(1000);
+          console.log('팝업 닫기 처리 완료');
         } catch (error) {
           console.warn(`팝업 닫기 실패: ${error.message}`);
         }
